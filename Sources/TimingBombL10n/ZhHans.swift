@@ -23,11 +23,13 @@ enum ZhHans {
 
         // MARK: Daemon lifecycle & HTTP layer
 
-        "TimingBomb v{version} — listening on http://127.0.0.1:{port}":
-            "TimingBomb v{version} — 监听 http://127.0.0.1:{port}",
+        "TimingBomb v{version} — listening on http://{host}:{port}":
+            "TimingBomb v{version} — 监听 http://{host}:{port}",
+        "LAN access enabled — the API is reachable from the local network (token still required)":
+            "LAN 调用已开启 —— 局域网内的机器可访问 API（仍需 Token 鉴权）",
         "data dir: {path} ({count} flow(s) registered)": "数据目录：{path}（已注册 {count} 个流程）",
-        "daemon: running ({status}, v{version}) — http://127.0.0.1:{port}":
-            "daemon：运行中（{status}，v{version}）— http://127.0.0.1:{port}",
+        "daemon: running ({status}, v{version}) — {url}":
+            "daemon：运行中（{status}，v{version}）— {url}",
         "daemon is shutting down": "daemon 正在关闭",
         "daemon is not ready": "daemon 尚未就绪",
         "daemon unavailable": "daemon 不可用",
@@ -411,13 +413,18 @@ enum ZhHans {
         "App not found; make sure TimingBomb.app was not moved": "未找到应用，请确认 TimingBomb.app 未被移动",
         "Unknown state": "未知状态",
         "Setting failed: {detail}": "设置失败：{detail}",
-        "Command Line (tb)": "命令行（tb）",
+        "Allow LAN access": "允许 LAN 调用",
+        "When on, the API listens on all network interfaces so machines on the LAN can call it (still token-protected); when off, only 127.0.0.1 is accepted":
+            "开启后 API 监听所有网卡，局域网内的机器可调用（仍需 Token 鉴权）；关闭后仅接受本机 127.0.0.1",
+        "TIMING_BOMB_API_TOKEN is required when TIMING_BOMB_HOST is set":
+            "设置 TIMING_BOMB_HOST 时必须同时提供 TIMING_BOMB_API_TOKEN",
+        "invalid TIMING_BOMB_HOST: {host}": "TIMING_BOMB_HOST 无效：{host}",
+        "lanAccess must be a boolean": "lanAccess 必须为布尔值",
         "Status": "状态",
         "Installed": "已安装",
         "Not installed": "未安装",
         "Path": "路径",
         "Reinstall": "重新安装",
-        "Install to PATH": "安装到 PATH",
         "Install failed: {detail}": "安装失败：{detail}",
         "Remove": "移除",
         "Skill (timingbomb)": "Skill（timingbomb）",

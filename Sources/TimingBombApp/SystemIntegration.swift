@@ -49,43 +49,6 @@ final class LoginItemManager: ObservableObject {
     }
 }
 
-/// Symlinks the bundled tb CLI into ~/.local/bin (already on the user's PATH).
-enum CLIInstaller {
-    static var linkURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/bin/tb")
-    }
-
-    static var bundledCLI: URL {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/tb")
-    }
-
-    static func isInstalled() -> Bool {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: linkURL.path) else { return false }
-        guard
-            let destination = try? fileManager.destinationOfSymbolicLink(
-                atPath: linkURL.path)
-        else { return true }
-        return URL(fileURLWithPath: destination).resolvingSymlinksInPath().path
-            == bundledCLI.resolvingSymlinksInPath().path
-    }
-
-    static func install() throws {
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(
-            at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if fileManager.fileExists(atPath: linkURL.path) {
-            try fileManager.removeItem(at: linkURL)
-        }
-        try fileManager.createSymbolicLink(at: linkURL, withDestinationURL: bundledCLI)
-    }
-
-    static func uninstall() throws {
-        try FileManager.default.removeItem(at: linkURL)
-    }
-}
-
 /// Copies the bundled timingbomb skill to ~/.agents/skills/timingbomb, then
 /// links it into agent CLI skill directories that already exist
 /// (~/.claude/skills, ~/.codex/skills, ...). Directories that do not exist are

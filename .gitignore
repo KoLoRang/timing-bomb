@@ -32,3 +32,6 @@ token
 *.pem
 *.key
 *.log
+
+# npm 包二进制是构建产物（scripts/build-cli.sh），由 CI 构建发布，不入库
+Skills/timingbomb/assets/

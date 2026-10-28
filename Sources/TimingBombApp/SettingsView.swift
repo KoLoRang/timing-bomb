@@ -9,8 +9,6 @@ struct SettingsView: View {
     @StateObject private var loginItem = LoginItemManager()
     @State private var appearance = AppearanceMode.stored
     @State private var language = LanguageMode.stored
-    @State private var cliInstalled = CLIInstaller.isInstalled()
-    @State private var cliError: String?
     @State private var skillInstalled = SkillInstaller.isInstalled()
     @State private var skillError: String?
     @State private var skillNote: String?
@@ -22,6 +20,8 @@ struct SettingsView: View {
     @State private var allowError: String?
     @State private var loggingEnabled = true
     @State private var loggingError: String?
+    @State private var lanAccess = false
+    @State private var lanError: String?
     @StateObject private var update = UpdateManager()
 
     var body: some View {
@@ -32,7 +32,6 @@ struct SettingsView: View {
                 loginItemSection
                 loggingSection
                 allowlistSection
-                cliSection
                 skillSection
                 connectionSection
                 aboutSection
@@ -43,11 +42,11 @@ struct SettingsView: View {
         .onAppear {
             token = try? String(contentsOf: TBPaths.tokenFileURL, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            cliInstalled = CLIInstaller.isInstalled()
             skillInstalled = SkillInstaller.isInstalled()
             Task {
                 await reloadAllowlist()
                 loggingEnabled = (try? await TBAPIClient.loggingEnabled()) ?? true
+                lanAccess = (try? await TBAPIClient.lanAccessEnabled()) ?? false
             }
         }
         .sheet(isPresented: $showAbout) { AboutView() }
@@ -235,40 +234,6 @@ struct SettingsView: View {
         }
     }
 
-    private var cliSection: some View {
-        Section(L10n.t("Command Line (tb)")) {
-            LabeledContent(L10n.t("Status")) {
-                Text(cliInstalled ? L10n.t("Installed") : L10n.t("Not installed"))
-                    .foregroundStyle(cliInstalled ? Color.green : Color.secondary)
-            }
-            LabeledContent(L10n.t("Path")) {
-                Text(CLIInstaller.linkURL.path)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-            }
-            HStack {
-                Button(cliInstalled ? L10n.t("Reinstall") : L10n.t("Install to PATH")) {
-                    do {
-                        cliError = nil
-                        try CLIInstaller.install()
-                        cliInstalled = CLIInstaller.isInstalled()
-                    } catch {
-                        cliError = L10n.t("Install failed: {detail}", ["detail": error.localizedDescription])
-                    }
-                }
-                if cliInstalled {
-                    Button(L10n.t("Remove"), role: .destructive) {
-                        try? CLIInstaller.uninstall()
-                        cliInstalled = CLIInstaller.isInstalled()
-                    }
-                }
-            }
-            if let cliError {
-                Text(cliError).font(.caption).foregroundStyle(.red)
-            }
-        }
-    }
-
     private var skillSection: some View {
         Section(L10n.t("Skill (timingbomb)")) {
             LabeledContent(L10n.t("Status")) {
@@ -333,6 +298,31 @@ struct SettingsView: View {
 
     private var connectionSection: some View {
         Section(L10n.t("Connection")) {
+            Toggle(L10n.t("Allow LAN access"), isOn: $lanAccess)
+                .onChange(of: lanAccess) { _, enabled in
+                    Task {
+                        do {
+                            try await TBAPIClient.setLanAccess(enabled)
+                            lanError = nil
+                            lanAccess = (try? await TBAPIClient.lanAccessEnabled()) ?? enabled
+                        } catch let error as APIClientError {
+                            lanError = error.rendered
+                            lanAccess = (try? await TBAPIClient.lanAccessEnabled()) ?? !enabled
+                        } catch {
+                            lanError = String(describing: error)
+                        }
+                    }
+                }
+            Text(
+                L10n.t(
+                    "When on, the API listens on all network interfaces so machines on the LAN can call it (still token-protected); when off, only 127.0.0.1 is accepted"
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if let lanError {
+                Text(lanError).font(.caption).foregroundStyle(.red)
+            }
             LabeledContent(L10n.t("Local API")) {
                 Text("http://127.0.0.1:\(TBPaths.defaultPort)")
                     .font(.system(.caption, design: .monospaced))

@@ -36,7 +36,6 @@
         <li><a href="#卸载">卸载</a></li>
       </ul>
     </li>
-    <li><a href="#使用">使用</a></li>
   </ol>
 </details>
 
@@ -85,8 +84,8 @@ TimingBomb 是一款运行在 macOS 上的自动化任务编排软件：把任�
    hdiutil detach /Volumes/TimingBomb
    ```
 
-2. 打开 TimingBomb.app：服务自动启动，右上角菜单栏出现常驻图标；「设置」页可开启**开机自启**（默认关闭）、切换**日间/夜晚/随系统**主题、一键安装 `tb` 命令行
-3. 命令行（可选）：`sudo ln -s /Applications/TimingBomb.app/Contents/MacOS/tb /usr/local/bin/tb`，或在 App 设置页点「安装到 PATH」
+2. 打开 TimingBomb.app：服务自动启动，右上角菜单栏出现常驻图标；「设置」页可开启**开机自启**（默认关闭）、切换**日间/夜晚/随系统**主题、一键安装 Skill 包
+3. 命令行（可选，跨平台）：`npm install -g timingbomb` 安装 Go 版 `tb` CLI（macOS / Linux / Windows）；局域网内其它机器可通过 `TIMING_BOMB_HOST` + `TIMING_BOMB_API_TOKEN` 远程调用本机服务（App 设置 → 连接信息 → 开启「允许 LAN 调用」）
 
 数据目录：`~/Library/Application Support/TimingBomb/`（流程定义、运行历史、token）；日志：`~/Library/Logs/TimingBomb/daemon.log`。
 
@@ -110,53 +109,6 @@ TIMINGBOMB_INCLUDE_TESTS=1 swift test
 1. App 设置页关闭「开机自启」并停止服务，退出 App
 2. `rm -rf /Applications/TimingBomb.app /usr/local/bin/tb`
 3. 可选清理数据：`rm -rf ~/Library/Application\ Support/TimingBomb ~/Library/Logs/TimingBomb`
-
-<p align="right">（<a href="#目录">回到顶部</a>）</p>
-
-## 使用
-
-`tb` CLI 常用命令：
-
-```bash
-tb status                                   # 服务健康/版本
-tb flow create --file examples/hello.json   # 注册示例流程
-tb run hello --input '{"base": 5}' --wait   # 触发并等待结果
-tb run hello --dry-run --wait               # 试跑（不产生真实副作用）
-tb runs list --limit 10                     # 运行历史
-tb runs show <runId>                        # 节点时间线/每节点输入输出/上下文
-tb runs rm <runId>                          # 删除一条运行记录
-tb runs clear --yes [--flow-id <id>]        # 清空运行记录（可按流程）
-tb logging on|off|status                    # 运行历史记录开关
-tb flow validate --file myflow.json         # 仅校验不保存
-tb allow add "git *"                        # shell/AppleScript 白名单
-```
-
-外部触发（webhook）：
-
-```bash
-curl -X POST http://127.0.0.1:47632/hooks/<flowId> \
-  -H "Authorization: Bearer $(tb auth token)" \
-  -H "Content-Type: application/json" \
-  -d '{"payload": {"key": "value"}}'
-```
-
-流程为纯 JSON（结构见 [Skills/timingbomb/SKILL.md](Skills/timingbomb/SKILL.md)），完整示例见 [examples/](examples/)（含 `claude-assist.json`：流程内调用 Claude Code 并系统通知回答）。
-
-**让 AI 帮你写流程（ZCode Skill）**：仓库内置 Skill 包（`Skills/timingbomb/`：SKILL.md + JSON Schema + 代码模板 + 示例）。安装后，AI Agent 即可按统一规范创建、校验、试跑、上线 TimingBomb 流程。
-
-```bash
-# 用户级安装（推荐，所有项目可用）
-mkdir -p ~/.zcode/skills
-cp -R Skills/timingbomb ~/.zcode/skills/
-
-# 项目级安装（仅当前仓库可用）
-mkdir -p .zcode/skills
-cp -R Skills/timingbomb .zcode/skills/
-```
-
-安装后重启 ZCode（或新开会话）即可生效；对其它兼容 `~/.agents/skills/` 的 Agent，把目标目录换成 `~/.agents/skills/` 即可。随后直接对 AI 说「帮我建一个每天 9 点抓取 xx 并通知的流程」，它会走标准工作流：生成 flow JSON → `tb flow validate` 校验 → `tb run --dry-run` 试跑 → 确认后保存并配置触发。
-
-更多用例请参考 [examples/](examples/) 目录。
 
 <p align="right">（<a href="#目录">回到顶部</a>）</p>
 

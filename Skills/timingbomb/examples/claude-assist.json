@@ -1,30 +1,30 @@
 {
   "id": "claude-assist",
-  "name": "AI 助手示例：调用本机 Claude Code 处理输入",
+  "name": "AI assistant example: call the local Claude Code CLI with the input",
   "version": 1,
-  "description": "演示 ctx.tools.exec 调用系统级 claude CLI 并把结果回传流程（需先 tb allow add \"claude *\"）",
+  "description": "Demonstrates ctx.tools.exec calling the system claude CLI and passing the result back into the flow (run tb allow add \"claude *\" first)",
   "trigger": { "type": "webhook" },
   "nodes": [
     {
       "id": "ask",
       "type": "code",
-      "name": "调用 Claude",
+      "name": "Call Claude",
       "timeoutMs": 180000,
-      "code": "async function run(ctx) {\n  const question = ctx.trigger.payload.question || \"用一句话介绍你自己\";\n  ctx.tools.log(\"提问:\", question);\n  const r = await ctx.tools.exec(\n    `claude -p ${JSON.stringify(question + \"（用中文简洁回答）\")}`,\n    { timeoutMs: 150000 }\n  );\n  if (r.exitCode !== 0) { ctx.tools.fail(\"claude 调用失败: \" + r.stderr.slice(0, 200)); }\n  return { question: question, answer: r.stdout.trim() };\n}"
+      "code": "async function run(ctx) {\n  const question = ctx.trigger.payload.question || \"Introduce yourself in one sentence\";\n  ctx.tools.log(\"question:\", question);\n  const r = await ctx.tools.exec(\n    `claude -p ${JSON.stringify(question + \" (answer concisely)\")}`,\n    { timeoutMs: 150000 }\n  );\n  if (r.exitCode !== 0) { ctx.tools.fail(\"claude call failed: \" + r.stderr.slice(0, 200)); }\n  return { question: question, answer: r.stdout.trim() };\n}"
     },
     {
       "id": "check",
       "type": "if",
-      "name": "有回答才通知",
+      "name": "Notify only when there is an answer",
       "condition": "nodes.ask.output.answer.length > 0",
       "then": [
         {
           "id": "notify",
           "type": "action",
-          "name": "系统通知",
+          "name": "System notification",
           "action": "notify",
           "params": {
-            "title": "Claude 回答（{{config.flowName}}）",
+            "title": "Claude answer ({{config.flowName}})",
             "body": "{{nodes.ask.output.answer}}"
           }
         }

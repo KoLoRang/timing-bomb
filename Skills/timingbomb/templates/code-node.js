@@ -1,16 +1,17 @@
-// TimingBomb 代码节点模板
-// 契约：必须且只能定义 async function run(ctx)；禁止 import/require；
-//       只能通过 ctx 与外界交互；返回值写入 ctx.nodes.<本节点id>.output。
+// TimingBomb code-node template.
+// Contract: define exactly one async function run(ctx); no import/require;
+// interact with the outside world only through ctx; the return value is
+// written to ctx.nodes.<this node's id>.output.
 async function run(ctx) {
-  // 输入：触发 payload（tb run <flowId> --input '<json>' 注入）
+  // Input: the trigger payload (injected by `tb run <flowId> --input '<json>'`)
   const payload = ctx.trigger.payload || {};
 
-  // 上游节点输出：ctx.nodes.<nodeId>.output；循环内：ctx.loop.item / ctx.loop.index
+  // Upstream node outputs: ctx.nodes.<nodeId>.output; inside loops: ctx.loop.item / ctx.loop.index
   const upstream = ctx.nodes["some-node-id"]?.output ?? null;
 
-  // 工具：log / sleep / fail / http.fetch
+  // Tools: log / sleep / fail / http.fetch
   ctx.tools.log("payload:", JSON.stringify(payload));
-  await ctx.tools.sleep(100); // 毫秒
+  await ctx.tools.sleep(100); // milliseconds
   // const resp = await ctx.tools.http.fetch("https://example.com/api", {
   //   method: "POST",
   //   headers: { "Content-Type": "application/json" },
@@ -18,13 +19,13 @@ async function run(ctx) {
   // });
   // const data = resp.json();
 
-  // 失败：抛错或 ctx.tools.fail("原因")（按节点 onError/retries 策略处理）
+  // Failure: throw or ctx.tools.fail("reason") (handled per node onError/retries)
   if (!payload.required) {
     ctx.tools.fail("missing required payload");
   }
 
-  // 循环控制（仅 loop 体内）：return { $loop: "break" } / { $loop: "continue" }
+  // Loop control (loop bodies only): return { $loop: "break" } / { $loop: "continue" }
 
-  // 返回任意 JSON 值
+  // Return any JSON value
   return { ok: true, receivedAt: new Date().toISOString() };
 }

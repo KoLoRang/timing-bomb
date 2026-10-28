@@ -42,3 +42,63 @@ jobs:
             gh release create "$GITHUB_REF_NAME" "$DMG" \
               --title "TimingBomb $VERSION" --generate-notes --repo "$GITHUB_REPOSITORY"
           fi
+
+  # Skill package → npm: runs on the same tag push when Skills/timingbomb
+  # changed since the previous tag. Requires the NPM_TOKEN repo secret
+  # (npmjs.com access token with publish rights). Bump "version" in
+  # Skills/timingbomb/package.json before tagging; an already-published
+  # version is skipped gracefully.
+  skill-npm:
+    name: Publish skill package to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Did the skill package change?
+        id: skill
+        run: |
+          PREV="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          if [ -n "$PREV" ] && ! git diff --name-only "$PREV" "$GITHUB_REF_NAME" -- Skills/timingbomb | grep -q .; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "skill unchanged since $PREV — skipping npm publish"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v5
+        if: steps.skill.outputs.changed == 'true'
+        with:
+          go-version-file: cli/go.mod
+
+      - name: Build CLI binaries (all platforms)
+        if: steps.skill.outputs.changed == 'true'
+        run: ./scripts/build-cli.sh --all
+
+      - name: Publish to npm
+        if: steps.skill.outputs.changed == 'true'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd Skills/timingbomb
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "timingbomb@$VERSION" version --registry https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "timingbomb@$VERSION already on npm — skipping"
+            exit 0
+          fi
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::error::NPM_TOKEN secret is not configured — add an npmjs.com publish token to the repo secrets"
+            exit 1
+          fi
+          # Permission check first: a valid token must resolve to an account.
+          if ! WHOAMI="$(npm whoami --registry https://registry.npmjs.org/ \
+              "--//registry.npmjs.org/:_authToken=$NPM_TOKEN" 2>&1)"; then
+            echo "::error::NPM_TOKEN is invalid or expired: $WHOAMI"
+            exit 1
+          fi
+          echo "npm token OK — publishing as $WHOAMI"
+          npm publish --access public \
+            --registry https://registry.npmjs.org/ \
+            "--//registry.npmjs.org/:_authToken=$NPM_TOKEN"

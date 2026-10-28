@@ -1,145 +1,184 @@
 ---
 name: timingbomb
-description: 使用 TimingBomb（Mac 自动化任务编排）创建、校验、触发和管理任务流。当用户要求"定时任务/自动化流程/任务编排/轮询监控/数据处理流水线"或提到 tb 命令时使用。
+description: Create, validate, trigger and manage TimingBomb automation flows (Mac task orchestration). Use when the user asks for "scheduled tasks / automation flows / task orchestration / polling monitors / data pipelines" or mentions the tb command.
 ---
 
 # TimingBomb Skill
 
-TimingBomb 是运行在用户 Mac 上的任务编排服务：流程（flow）由节点组成，节点代码用 JavaScript 在系统内嵌沙箱中执行（无任何外部依赖）。本 skill 通过 `tb` CLI 与 daemon 交互完成流程的开发、校验与运行。
+TimingBomb is a task-orchestration service that runs on a Mac (usually the local machine; it can also run on another Mac on the LAN — see "Prerequisites & environment detection" below). Flows are composed of nodes; node code runs JavaScript inside a built-in sandbox with zero external dependencies. This skill drives the service through the `tb` CLI.
 
-## 使用前提
+## Prerequisites & environment detection
 
-- daemon 必须在运行（`tb status` 检查；未运行时提示用户执行 `tb serve`）
-- CLI 路径：仓库构建产物 `.build/debug/tb`（或用户已安装到 PATH 的 `tb`）
+- Install the CLI: `npm install -g timingbomb` (provides `tb`).
+  - No npm? Run the matching prebuilt binary directly from `assets/`
+    (`tb-darwin-arm64`, `tb-linux-amd64`, `tb-windows-amd64.exe`, …) — same behavior.
+- The TimingBomb service must be running. **Before doing anything, decide whether you are in a local or a remote environment** (see below).
 
-## 命令字典
+### Step 1 — detect local vs. remote
+
+1. Assume **local** by default: run `tb status`.
+   - Prints `daemon: running (…)` → local mode; use the command dictionary as-is.
+   - Connection fails → ask the user to start TimingBomb on this machine (open the TimingBomb app).
+2. Switch to **remote** mode when either of these signals appears:
+   - The user explicitly mentions "the other Mac / remote / the TimingBomb on my other machine", or gives you an IP/host;
+   - Local `tb status` fails but the user still wants TimingBomb work → confirm with the user whether the service is remote.
+
+### Step 2 — remote only: configure the connection
+
+In remote mode every `tb` invocation needs two environment variables (the token comes from the **remote Mac**):
 
 ```bash
-tb status                                     # daemon 健康/版本
-tb flow list [--json]                         # 列出流程
-tb flow show <flowId> [--json]                # 查看流程定义
-tb flow create --file <flow.json>             # 创建/更新流程（也支持 stdin）
-tb flow validate --file <flow.json>           # 仅校验，不保存（每次交付前必须通过）
-tb flow rm <flowId>                           # 删除流程
-tb run <flowId> --input '<json>' --wait       # 触发运行并等待结果
-tb run <flowId> --dry-run --wait              # 试跑：tools/动作不产生真实副作用
-tb runs list [--flowId <id>] [--limit 20]     # 运行历史
-tb runs show <runId>                          # 节点时间线/日志/最终上下文
-tb runs cancel <runId>                        # 取消运行
-tb allow list|add "<pattern>"|rm "<pattern>"  # shell/appleScript 白名单
+TIMING_BOMB_HOST=192.168.1.5 TIMING_BOMB_API_TOKEN=<remote token> tb status
+# or export them once for the session
+export TIMING_BOMB_HOST=192.168.1.5      # IP / hostname / host:port / http://… ; port defaults to 47632
+export TIMING_BOMB_API_TOKEN=<remote token>
 ```
 
-## AI 标准工作流
+Guide the user through two steps **on the remote Mac**:
 
-1. 根据用户需求生成 flow JSON（结构见下）+ 各 code 节点的 JS 代码；
-2. `tb flow validate` 必须零 error；
-3. `tb run <flowId> --input '<示例 payload>' --dry-run --wait` 试跑（无副作用；shell 未授权会在试跑即报错）；
-4. 真实运行 `tb run --wait` 验证输出符合预期；
-5. 向用户报告结果，等确认后再 `tb flow create` 落盘（如需 shell 权限，提示用户执行 `tb allow add`）。
+1. TimingBomb app → Settings → Connection → turn on **Allow LAN access** (off by default; when off the service only listens on 127.0.0.1 and is unreachable from the network);
+2. On the same page, copy the **API Token** (or run `tb auth token` on that machine).
 
-## Flow JSON 结构
+Verify: `tb status` with the variables set should print `daemon: running (…) — http://<host>:<port>`.
+
+Gotchas: setting only `TIMING_BOMB_HOST` without `TIMING_BOMB_API_TOKEN` fails immediately; a wrong token still passes `tb status` (health is unauthenticated) but business commands (flow/run/…) return 401 — trust the business commands.
+
+Note: `tb serve` does not exist in this client. The service always runs inside the TimingBomb Mac app (or from the Swift sources on that Mac).
+
+## Command dictionary
+
+Local mode uses these directly; remote mode prefixes each command with `TIMING_BOMB_HOST=… TIMING_BOMB_API_TOKEN=…` (see above).
+
+```bash
+tb status                                     # daemon health / version
+tb flow list [--json]                         # list flows
+tb flow show <flowId> [--json]                # inspect a flow definition
+tb flow create --file <flow.json>             # create/update a flow (stdin also works)
+tb flow validate --file <flow.json>           # validate only, no save (must pass before every delivery)
+tb flow rm <flowId>                           # delete a flow
+tb run <flowId> --input '<json>' --wait       # trigger a run and wait for the result
+tb run <flowId> --dry-run --wait              # dry-run: tools/actions cause no real side effects
+tb runs list [--flowId <id>] [--limit 20]     # run history
+tb runs show <runId>                          # node timeline / logs / final context
+tb runs cancel <runId>                        # cancel a run
+tb allow list|add "<pattern>"|rm "<pattern>"  # shell/appleScript allowlist
+tb logging on|off|status                      # run-history logging toggle
+```
+
+## Standard agent workflow
+
+0. At the start of a session, detect local/remote mode per "Prerequisites & environment detection" (for remote, configure `TIMING_BOMB_HOST` / `TIMING_BOMB_API_TOKEN` and verify with `tb status`);
+1. Generate the flow JSON from the user's request (structure below) plus the JS code for each `code` node;
+2. `tb flow validate` must report zero errors;
+3. Dry-run: `tb run <flowId> --input '<sample payload>' --dry-run --wait` (no side effects; unauthorized shell commands fail right here);
+4. Real run `tb run --wait` and check the output matches expectations;
+5. Report to the user; save with `tb flow create` only after confirmation (if shell access is needed, prompt the user to run `tb allow add`).
+
+## Flow JSON structure
 
 ```jsonc
 {
-  "id": "kebab-or-dash-id",          // [A-Za-z0-9._-]，全局唯一
-  "name": "人类可读名称",
+  "id": "kebab-or-dash-id",          // [A-Za-z0-9._-], globally unique
+  "name": "Human-readable name",
   "version": 1,
-  "description": "可选说明",
-  "trigger": {                        // 可选；M1 默认手动/webhook 触发
-    "type": "schedule",               // manual | schedule | webhook
-    "cron": "0 9 * * 1-5",            // 5 段 cron，schedule 时必填
+  "description": "Optional notes",
+  "trigger": {                        // optional; defaults to manual/webhook
+    "type": "schedule",               // manual | schedule | webhook | fileWatch
+    "cron": "0 9 * * 1-5",            // 5-field cron, required for schedule
     "timezone": "Asia/Shanghai",
     "misfire": "skip"                 // skip | fireOnce
   },
-  "nodes": [ /* 节点数组，见下 */ ]
+  "nodes": [ /* node array, see below */ ]
 }
 ```
 
-节点通用字段：`id`（全局唯一）、`type`、`name`、`timeoutMs`、`onError`（`abort`|`continue`，默认 abort）、`retries`、`skipIf`（条件表达式，false 时跳过）。
+Common node fields: `id` (globally unique), `type`, `name`, `timeoutMs`, `onError` (`abort`|`continue`, default abort), `retries`, `skipIf` (condition expression, skip when false).
 
-### code 节点 —— `{"id": "...", "type": "code", "language": "js|python|shell", "code": "<源码>"}`
+### code node — `{"id": "...", "type": "code", "language": "js|python|shell", "code": "<source>"}`
 
-**语言**（`language` 可省略，默认 js）：
+**Languages** (`language` optional, defaults to js):
 
-- `js`：内嵌 JSCore 沙箱（零依赖）。必须且只能定义 `async function run(ctx)`；禁止 `import`/`require`。
-- `python`：系统 python3 子进程（可用 env `TIMINGBOMB_PYTHON` 指定路径）。协议：**stdin 收完整 context JSON，stdout 输出结果 JSON**（非 JSON 则回退 `{raw}`），stderr 计入日志，退出码非 0 即失败。
-- `shell`：zsh 子进程，同上协议（`CTX=$(cat)` 取 context，`echo '{...}'` 输出结果）。
+- `js`: embedded JSCore sandbox (zero dependencies). Must define exactly one `async function run(ctx)`; `import`/`require` are forbidden.
+- `python`: system python3 subprocess (path overridable via env `TIMINGBOMB_PYTHON`). Protocol: **full context JSON on stdin, result JSON on stdout** (non-JSON falls back to `{raw}`), stderr goes to logs, non-zero exit fails the node.
+- `shell`: zsh subprocess, same protocol (`CTX=$(cat)` reads the context, `echo '{...}'` emits the result).
 
-JS 契约：
+JS contract:
 
-- 只能通过 `ctx` 与外界交互：
-  - `ctx.trigger.payload` —— 触发时注入的输入
-  - `ctx.nodes.<nodeId>.output` —— 上游节点输出
-  - `ctx.loop.item` / `ctx.loop.index` —— 循环体内可用
+- Interact with the world only through `ctx`:
+  - `ctx.trigger.payload` — input injected at trigger time
+  - `ctx.nodes.<nodeId>.output` — upstream node outputs
+  - `ctx.loop.item` / `ctx.loop.index` — available inside loop bodies
   - `ctx.config.flowId` / `ctx.config.runId`
-  - `ctx.get("a.b.0.c")` —— 深路径取值（缺失返回 null）
-  - `ctx.tools.log(...)`、`ctx.tools.sleep(ms)`、`ctx.tools.fail(msg)`
-  - `ctx.tools.http.fetch(url, opts)`（返回 `{status, ok, headers, body, json()}`）
-  - `ctx.tools.exec(command, {timeoutMs})` —— **调用系统命令**（白名单校验；返回 `{exitCode, stdout, stderr}`）。PATH 已增强（含 `~/.local/bin`、`/opt/homebrew/bin` 等），可直接调 `claude`、`git` 等。例如调 Claude Code：`const r = await ctx.tools.exec("claude -p \"...\" --output-format json")`
-  - `console.log(...)` 等价于 `ctx.tools.log`
-- 返回值写入 `ctx.nodes.<本节点id>.output`（任意 JSON 值）；
-- 循环体内返回 `{ "$loop": "break" }` 或 `{ "$loop": "continue" }` 控制循环。
+  - `ctx.get("a.b.0.c")` — deep-path lookup (null when missing)
+  - `ctx.tools.log(...)`, `ctx.tools.sleep(ms)`, `ctx.tools.fail(msg)`
+  - `ctx.tools.http.fetch(url, opts)` (returns `{status, ok, headers, body, json()}`)
+  - `ctx.tools.exec(command, {timeoutMs})` — **run system commands** (allowlist-checked; returns `{exitCode, stdout, stderr}`). PATH is enriched (includes `~/.local/bin`, `/opt/homebrew/bin`, …), so `claude`, `git` etc. work directly. Example calling Claude Code: `const r = await ctx.tools.exec("claude -p \"...\" --output-format json")`
+  - `console.log(...)` is equivalent to `ctx.tools.log`
+- The return value lands in `ctx.nodes.<this node's id>.output` (any JSON value);
+- Inside loops return `{ "$loop": "break" }` or `{ "$loop": "continue" }` to control iteration.
 
-### if 节点
+### if node
 
 ```jsonc
 { "id": "check", "type": "if", "condition": "nodes.a.output.count > 3",
-  "then": [ /* 子节点 */ ], "else": [ /* 子节点 */ ] }
+  "then": [ /* child nodes */ ], "else": [ /* child nodes */ ] }
 ```
-`condition` 是 JS 表达式（作用域即 ctx，如 `nodes.a.output.x === 1`）；也可写含 `return` 的函数体。多条件用 `&&`/`||`。
+`condition` is a JS expression (scope is ctx, e.g. `nodes.a.output.x === 1`); a function body with `return` also works. Combine with `&&`/`||`.
 
-### approval 节点 —— `{"id": "...", "type": "approval", "message": "金额 {{nodes.a.output.amount}} 元，请确认"}`
+### approval node — `{"id": "...", "type": "approval", "message": "Amount {{nodes.a.output.amount}} — please confirm"}`
 
-运行到此节点会**挂起**（run 状态 awaitingApproval），在 App「审批」页或 API 处理：
-- 同意 → 从该节点之后继续执行（上下文/时间线延续，同一 runId）
-- 拒绝（可附备注）→ run 失败终止
-- `message` 支持 `{{ 模板 }}`；**不允许放在循环体内**（校验器会报错）；if 分支内可用
+Execution **suspends** at this node (run status awaitingApproval) until handled in the app's Approvals page or via API:
 
-API：`GET /approvals`；`POST /approvals/<id>/approve|reject`（body 可带 `{"comment": "..."}`）；`DELETE /approvals`（清除全部已决历史，待审保留）
+- Approve → execution resumes after the node (context/timeline preserved, same runId)
+- Reject (optional comment) → the run fails and stops
+- `message` supports `{{ templates }}`; **not allowed inside loop bodies** (the validator rejects it); fine inside if-branches
 
-### loop 节点
+API: `GET /approvals`; `POST /approvals/<id>/approve|reject` (body may carry `{"comment": "..."}`); `DELETE /approvals` (clears decided history, keeps pending).
+
+### loop node
 
 ```jsonc
 { "id": "each", "type": "loop", "mode": "forEach",
-  "over": "{{nodes.a.output.items}}",   // 模板取数组；count 模式取数字（或字面量 "5" / "[1,2]"）
+  "over": "{{nodes.a.output.items}}",   // template resolving to an array; count mode takes a number (or literals "5" / "[1,2]")
   "concurrency": 1, "maxIterations": 1000,
-  "body": [ /* 子节点，可用 ctx.loop.item / ctx.loop.index */ ] }
+  "body": [ /* child nodes; use ctx.loop.item / ctx.loop.index */ ] }
 ```
-`mode`: `count`（N 次）| `forEach`（遍历数组）| `while`（用 `condition` 替代 `over`，配合 `{ $loop: "break" }` 使用）。
+`mode`: `count` (N iterations) | `forEach` (iterate array) | `while` (uses `condition` instead of `over`, combine with `{ $loop: "break" }`).
 
-### action 节点（内置动作，无需写代码）
+### action nodes (built-in, no code)
 
-- `delay`：`{"ms": 500}`
-- `http`：`{"method": "POST", "url": "...", "headers": {}, "body": {}, "timeoutMs": 10000}` → `{status, ok, headers, body}`
-- `shell`：`{"command": "git status", "timeoutMs": 30000}` → `{exitCode, stdout, stderr}`（**需白名单**：`tb allow add "git *"`）
-- `appleScript`：`{"script": "display notification \"hi\""}`（需白名单）
-- `notify`：`{"title": "...", "body": "..."}`（系统通知）
-- `openApp`：`{"name": "Safari"}`
-- `clipboard`：`{"op": "read"}` 或 `{"op": "write", "text": "..."}`
-- `fileRead` / `fileWrite`：`{"path": "out/a.txt"}` / `{"path": "out/a.txt", "content": "..."}` —— 路径相对流程工作区（`~/Library/Application Support/TimingBomb/workspaces/<flowId>/`），禁止 `..` 与绝对路径
+- `delay`: `{"ms": 500}`
+- `http`: `{"method": "POST", "url": "...", "headers": {}, "body": {}, "timeoutMs": 10000}` → `{status, ok, headers, body}`
+- `shell`: `{"command": "git status", "timeoutMs": 30000}` → `{exitCode, stdout, stderr}` (**allowlist required**: `tb allow add "git *"`)
+- `appleScript`: `{"script": "display notification \"hi\""}` (allowlist required)
+- `notify`: `{"title": "...", "body": "..."}` (system notification)
+- `openApp`: `{"name": "Safari"}`
+- `clipboard`: `{"op": "read"}` or `{"op": "write", "text": "..."}`
+- `fileRead` / `fileWrite`: `{"path": "out/a.txt"}` / `{"path": "out/a.txt", "content": "..."}` — paths are relative to the flow workspace (`~/Library/Application Support/TimingBomb/workspaces/<flowId>/`); `..` and absolute paths are rejected
 
-params 中的字符串支持 `{{ 模板 }}` 引用上下文。
+Strings inside params support `{{ templates }}` referencing the context.
 
-### 触发方式（trigger.type）
+### Triggers (trigger.type)
 
-- `manual`：手动（默认）
-- `webhook`：外部 API（`POST /hooks/<flowId>` + Bearer Token）
-- `schedule`：`{"cron": "0 9 * * 1-5", "timezone": "Asia/Shanghai", "misfire": "skip|fireOnce"}`（迟到 >5 分钟默认跳过）
-- `fileWatch`：`{"path": "~/Downloads/inbox"}` —— 目录递归监听（FSEvents），去抖 2.5s 聚合，payload 注入 `{events: [{path, event}]}`
+- `manual`: by hand (default)
+- `webhook`: external API (`POST /hooks/<flowId>` + Bearer token)
+- `schedule`: `{"cron": "0 9 * * 1-5", "timezone": "Asia/Shanghai", "misfire": "skip|fireOnce"}` (late fire > 5 minutes is skipped by default)
+- `fileWatch`: `{"path": "~/Downloads/inbox"}` — recursive directory watching (FSEvents), 2.5s debounce, payload injects `{events: [{path, event}]}`
 
-## 模板语法
+## Template syntax
 
-任何字符串配置（如 `over`、action params）中：`{{ path.to.value }}` 会被上下文值替换；整串恰为一个模板时保留原始类型（对象/数组/数字）。
+In any string config (e.g. `over`, action params): `{{ path.to.value }}` is replaced by the context value; when the whole string is exactly one template the original type is preserved (object/array/number).
 
-## 校验要点（validate 会检查）
+## Validation rules (checked by validate)
 
-- 所有节点 id 全局唯一且匹配 `[A-Za-z0-9._-]+`
-- code 必须定义 `async function run(ctx)`，且不含 import/require
-- forEach 的 `over` 必须解析为数组；while 必须有 `condition`；action 必须是已知动作
-- cron 必须是合法 5 段表达式
+- All node ids are globally unique and match `[A-Za-z0-9._-]+`
+- code nodes define `async function run(ctx)` and contain no import/require
+- forEach `over` resolves to an array; while has a `condition`; actions are known types
+- cron is a valid 5-field expression
 
-## 参考文件
+## Reference files
 
-- `schemas/flow.schema.json` —— flow JSON 的完整 Schema
-- `templates/code-node.js` —— 代码节点模板
-- `examples/hello-flow.json` —— 完整示例（code + if + loop + action 组合）
+- `schemas/flow.schema.json` — the full JSON Schema for flows
+- `templates/code-node.js` — code node template
+- `examples/hello-flow.json` — complete example (code + if + loop + action combined)
+- `examples/claude-assist.json` — calling the local Claude Code CLI from a flow

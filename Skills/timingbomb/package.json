@@ -1,0 +1,40 @@
+{
+  "name": "timingbomb",
+  "version": "0.1.1",
+  "description": "TimingBomb skill package for AI agents — automation flow orchestration for macOS, with a bundled cross-platform `tb` CLI client.",
+  "bin": {
+    "tb": "bin/tb.js"
+  },
+  "scripts": {
+    "postinstall": "node bin/postinstall.js"
+  },
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "bin/",
+    "assets/",
+    "schemas/",
+    "templates/",
+    "examples/"
+  ],
+  "keywords": [
+    "timingbomb",
+    "automation",
+    "workflow",
+    "orchestration",
+    "ai-agent",
+    "skill",
+    "cli",
+    "macos"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KoLoRang/timing-bomb.git",
+    "directory": "Skills/timingbomb"
+  },
+  "author": "KoLoRang",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=16"
+  }
+}
