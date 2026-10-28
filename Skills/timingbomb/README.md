@@ -1,66 +1,58 @@
-# TimingBomb Skill (npm)
+# TimingBomb
 
-This npm package is the **TimingBomb skill** for AI coding agents: it teaches
-your agent (Claude Code, Codex, Pi, …) how to build, validate, dry-run and
-ship automation flows on [TimingBomb](https://github.com/KoLoRang/timing-bomb)
-— a macOS task orchestrator with `code / if / loop / approval / action` nodes,
-sandboxed JavaScript, and manual / cron / webhook / file-watch triggers.
+[TimingBomb](https://github.com/KoLoRang/timing-bomb) is a macOS automation
+orchestrator: flows are built from `code / if / loop / approval / action`
+nodes, node code runs JavaScript in a built-in sandbox, and flows are
+triggered manually, by cron schedule, by webhook, or by watching files.
 
-The package also bundles the cross-platform `tb` CLI client (Go, prebuilt for
-macOS / Linux / Windows on amd64 + arm64), which the skill — and you — use to
-talk to a TimingBomb service.
+Two pieces are distributed from this repository:
 
-## 1. Install the package
+- **The agent skill** — teaches your AI agent (Claude Code, Codex, Pi, Qoder,
+  …) how to create, validate, dry-run and ship TimingBomb flows. Installed
+  with the `skills` CLI from the GitHub repo.
+- **The `tb` CLI** (this npm package) — a cross-platform Go HTTP client for a
+  TimingBomb service (macOS / Linux / Windows, amd64 + arm64).
+
+## Install the skill for your agent
+
+```bash
+npx skills add KoLoRang/timing-bomb --skill timingbomb --agent <agent> -y
+```
+
+Pick your agent — `claude-code`, `codex`, `pi`, `qoder`, `cursor`,
+`gemini-cli`, `opencode`, … or `'*'` to install for every agent detected on
+this machine:
+
+```bash
+# Claude Code
+npx skills add KoLoRang/timing-bomb --skill timingbomb --agent claude-code -y
+
+# Codex
+npx skills add KoLoRang/timing-bomb --skill timingbomb --agent codex -y
+
+# Pi
+npx skills add KoLoRang/timing-bomb --skill timingbomb --agent pi -y
+
+# Qoder
+npx skills add KoLoRang/timing-bomb --skill timingbomb --agent qoder -y
+
+# All detected agents
+npx skills add KoLoRang/timing-bomb --skill timingbomb --agent '*' -y
+```
+
+By default the skill is installed for the current project; add `-g` for a
+user-level (global) install. To see what would be installed first:
+`npx skills add KoLoRang/timing-bomb --list`.
+
+## Install the tb CLI
 
 ```bash
 npm install -g timingbomb
 ```
 
-This gives you the `tb` command (a postinstall step prunes `assets/` down to
-your platform's single binary), plus the skill folder at
-`$(npm root -g)/timingbomb`.
-
-## 2. Link the skill into your agent(s)
-
-Agents discover skills from their own skill directories. Symlink the package
-folder there — pick the agents you use (all optional, mix freely):
-
-```bash
-SKILL="$(npm root -g)/timingbomb"
-
-# Claude Code
-mkdir -p ~/.claude/skills && ln -sfn "$SKILL" ~/.claude/skills/timingbomb
-
-# Codex
-mkdir -p ~/.codex/skills && ln -sfn "$SKILL" ~/.codex/skills/timingbomb
-
-# Pi
-mkdir -p ~/.pi/agent/skills && ln -sfn "$SKILL" ~/.pi/agent/skills/timingbomb
-
-# Generic agents.md convention (works with any agent that reads ~/.agents/skills)
-mkdir -p ~/.agents/skills && ln -sfn "$SKILL" ~/.agents/skills/timingbomb
-```
-
-Restart the agent (or start a new session) and the `timingbomb` skill is
-available — just ask, e.g. *"create a flow that fetches X every day at 9 and
-notifies me"*.
-
-Project-level alternative (only this repo's agent sessions see the skill):
-
-```bash
-npm install timingbomb
-mkdir -p .claude/skills && ln -sfn "$(pwd)/node_modules/timingbomb" .claude/skills/timingbomb
-# same pattern works for .codex/skills, .pi/agent/skills, …
-```
-
-On the Mac, the TimingBomb app can also install the skill for you:
-Settings → Skill → Install (copies to `~/.agents/skills` and links every
-agent directory that already exists).
-
-## 3. The service & remote usage
-
-The TimingBomb service runs on a Mac (the SwiftUI app hosts the daemon).
-The `tb` CLI works from any machine:
+A postinstall step keeps only your platform's prebuilt binary in `assets/`;
+`bin/tb.js` dispatches to it. The CLI talks to the TimingBomb service on the
+Mac (locally at `http://127.0.0.1:47632`, or remotely from any machine):
 
 ```bash
 tb status                                     # service health / version
@@ -72,17 +64,14 @@ tb runs list --limit 10                       # run history
 tb allow add "git *"                          # shell allowlist rule
 ```
 
-From another machine on the LAN, on the hosting Mac enable
-Settings → Connection → **Allow LAN access** and copy the **API Token**, then:
+Remote usage — on the hosting Mac enable Settings → Connection → **Allow LAN
+access** and copy the **API Token**, then from any machine:
 
 ```bash
 export TIMING_BOMB_HOST=192.168.1.5           # IP / host / host:port / http(s)://…
 export TIMING_BOMB_API_TOKEN=<token from that Mac>
 tb status
 ```
-
-Without `TIMING_BOMB_HOST`, `tb` targets `http://127.0.0.1:47632` and reads
-the local token file. Full agent guidance lives in `SKILL.md`.
 
 ## License
 

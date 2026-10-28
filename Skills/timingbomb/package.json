@@ -1,6 +1,6 @@
 {
   "name": "timingbomb",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "TimingBomb skill package for AI agents — automation flow orchestration for macOS, with a bundled cross-platform `tb` CLI client.",
   "bin": {
     "tb": "bin/tb.js"

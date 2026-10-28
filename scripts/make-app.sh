@@ -17,11 +17,8 @@ rm -rf "$STAGING"
 mkdir -p "$STAGING/$APP_NAME/Contents/MacOS" "$STAGING/$APP_NAME/Contents/Resources"
 
 cp "$BUILD/timingbombd" "$BUILD/TimingBombApp" "$BUILD/jsrunner" "$STAGING/$APP_NAME/Contents/MacOS/"
-# The tb CLI is Go now and ships via npm (Skills/timingbomb/assets) — keep the
-# DMG lean by bundling the skill without the prebuilt binaries.
-cp -R "$ROOT/Skills" "$STAGING/$APP_NAME/Contents/Resources/Skills"
-rm -rf "$STAGING/$APP_NAME/Contents/Resources/Skills/timingbomb/assets"
-cp -R "$ROOT/examples" "$STAGING/$APP_NAME/Contents/Resources/examples"
+# The skill ships via `npx skills add` and the tb CLI via npm — nothing from
+# Skills/ or examples/ belongs inside the app bundle anymore.
 cp "$ROOT/README.md" "$STAGING/$APP_NAME/Contents/Resources/"
 cp "$ROOT/Resources/Icons/AppIcon.icns" "$STAGING/$APP_NAME/Contents/Resources/"
 cp "$ROOT/Resources/Icons/"*Template*.png "$STAGING/$APP_NAME/Contents/Resources/"

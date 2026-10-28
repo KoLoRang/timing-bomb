@@ -9,9 +9,6 @@ struct SettingsView: View {
     @StateObject private var loginItem = LoginItemManager()
     @State private var appearance = AppearanceMode.stored
     @State private var language = LanguageMode.stored
-    @State private var skillInstalled = SkillInstaller.isInstalled()
-    @State private var skillError: String?
-    @State private var skillNote: String?
     @State private var showAbout = false
     @State private var token: String?
     @State private var tokenCopied = false
@@ -32,7 +29,6 @@ struct SettingsView: View {
                 loginItemSection
                 loggingSection
                 allowlistSection
-                skillSection
                 connectionSection
                 aboutSection
             }
@@ -42,7 +38,6 @@ struct SettingsView: View {
         .onAppear {
             token = try? String(contentsOf: TBPaths.tokenFileURL, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            skillInstalled = SkillInstaller.isInstalled()
             Task {
                 await reloadAllowlist()
                 loggingEnabled = (try? await TBAPIClient.loggingEnabled()) ?? true
@@ -231,68 +226,6 @@ struct SettingsView: View {
             if let error = loginItem.lastError {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
-        }
-    }
-
-    private var skillSection: some View {
-        Section(L10n.t("Skill (timingbomb)")) {
-            LabeledContent(L10n.t("Status")) {
-                Text(skillInstalled ? L10n.t("Installed") : L10n.t("Not installed"))
-                    .foregroundStyle(skillInstalled ? Color.green : Color.secondary)
-            }
-            LabeledContent(L10n.t("Path")) {
-                Text(SkillInstaller.destinationURL.path)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-            }
-            HStack {
-                Button(skillInstalled ? L10n.t("Reinstall") : L10n.t("Install Skill"), action: installSkill)
-                if skillInstalled {
-                    Button(L10n.t("Remove"), role: .destructive) {
-                        try? SkillInstaller.uninstall()
-                        skillInstalled = SkillInstaller.isInstalled()
-                        skillNote = nil
-                    }
-                }
-            }
-            Text(
-                L10n.t("Copies the bundled timingbomb skill to ~/.agents/skills, then links it into agent skill directories that already exist (~/.claude/skills, ~/.codex/skills, ...); missing directories are left untouched.")
-            )
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            if let skillNote {
-                Text(skillNote).font(.caption).foregroundStyle(.secondary)
-            }
-            if let skillError {
-                Text(skillError).font(.caption).foregroundStyle(.red)
-            }
-        }
-    }
-
-    private func installSkill() {
-        do {
-            skillError = nil
-            let result = try SkillInstaller.install()
-            skillInstalled = SkillInstaller.isInstalled()
-            var notes: [String] = []
-            if !result.linked.isEmpty {
-                notes.append(
-                    L10n.t("Linked into: {list}", ["list": result.linked.joined(separator: ", ")]))
-            }
-            if !result.skipped.isEmpty {
-                notes.append(
-                    L10n.t(
-                        "Skipped {list} (timingbomb already exists there and is not a symlink)",
-                        ["list": result.skipped.joined(separator: ", ")]))
-            }
-            if notes.isEmpty {
-                notes.append(
-                    L10n.t("No agent skill directories found; the skill was only copied to ~/.agents/skills"))
-            }
-            skillNote = notes.joined(separator: "\n")
-        } catch {
-            skillNote = nil
-            skillError = L10n.t("Install failed: {detail}", ["detail": error.localizedDescription])
         }
     }
 

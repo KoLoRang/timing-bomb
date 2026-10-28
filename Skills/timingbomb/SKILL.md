@@ -10,8 +10,6 @@ TimingBomb is a task-orchestration service that runs on a Mac (usually the local
 ## Prerequisites & environment detection
 
 - Install the CLI: `npm install -g timingbomb` (provides `tb`).
-  - No npm? Run the matching prebuilt binary directly from `assets/`
-    (`tb-darwin-arm64`, `tb-linux-amd64`, `tb-windows-amd64.exe`, …) — same behavior.
 - The TimingBomb service must be running. **Before doing anything, decide whether you are in a local or a remote environment** (see below).
 
 ### Step 1 — detect local vs. remote

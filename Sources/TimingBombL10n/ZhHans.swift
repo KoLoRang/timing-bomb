@@ -420,24 +420,6 @@ enum ZhHans {
             "设置 TIMING_BOMB_HOST 时必须同时提供 TIMING_BOMB_API_TOKEN",
         "invalid TIMING_BOMB_HOST: {host}": "TIMING_BOMB_HOST 无效：{host}",
         "lanAccess must be a boolean": "lanAccess 必须为布尔值",
-        "Status": "状态",
-        "Installed": "已安装",
-        "Not installed": "未安装",
-        "Path": "路径",
-        "Reinstall": "重新安装",
-        "Install failed: {detail}": "安装失败：{detail}",
-        "Remove": "移除",
-        "Skill (timingbomb)": "Skill（timingbomb）",
-        "Install Skill": "安装 Skill",
-        "Copies the bundled timingbomb skill to ~/.agents/skills, then links it into agent skill directories that already exist (~/.claude/skills, ~/.codex/skills, ...); missing directories are left untouched.":
-            "将内置 timingbomb skill 复制到 ~/.agents/skills，并在已存在的 agent skill 目录（~/.claude/skills、~/.codex/skills 等）中放入软链接；不存在的目录保持原样。",
-        "Linked into: {list}": "已链接到：{list}",
-        "Skipped {list} (timingbomb already exists there and is not a symlink)":
-            "已跳过 {list}（该处已存在同名 timingbomb 且不是软链接）",
-        "No agent skill directories found; the skill was only copied to ~/.agents/skills":
-            "未发现已存在的 agent skill 目录；仅复制到 ~/.agents/skills",
-        "Skill source not found (must run from TimingBomb.app or the repo checkout)":
-            "未找到 skill 源文件（需从 TimingBomb.app 或仓库目录运行）",
         "Connection": "连接信息",
         "Local API": "本地 API",
         "Data Directory": "数据目录",

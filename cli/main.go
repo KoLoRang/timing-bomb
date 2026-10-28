@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-const version = "0.1.2"
+const version = "0.1.3"
 
 const usage = `tb — TimingBomb CLI client (v%s)
 
