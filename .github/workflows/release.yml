@@ -1,0 +1,44 @@
+# Release packaging: pushing a tag like `v0.1.1` builds the arm64 DMG on a
+# macOS runner and attaches it to a GitHub Release for that tag.
+#
+# Usage:
+#   git tag v0.1.1 && git push origin v0.1.1
+#
+# Free-tier note: public repos run Actions for free; private repos get
+# 2000 min/month, billed at 10x on macOS runners (≈200 macOS minutes) —
+# one packaging run takes ~5 minutes.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    name: Build & release DMG (arm64)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build & package DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Packaging TimingBomb $VERSION"
+          TB_VERSION="$VERSION" ./scripts/make-dmg.sh
+
+      - name: Attach DMG to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG="dist/TimingBomb-${VERSION}-arm64.dmg"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" "$DMG" \
+              --title "TimingBomb $VERSION" --generate-notes --repo "$GITHUB_REPOSITORY"
+          fi

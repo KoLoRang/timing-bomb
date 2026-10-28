@@ -1,0 +1,34 @@
+# ---- 构建与打包产物（成品 DMG 用 GitHub Release 分发，不入库）----
+.DS_Store
+.build/
+.swiftpm/
+*.xcodeproj/
+dist/
+*.dmg
+*.xcresult
+*.dia
+
+# ---- 测试与内部文档（仅本地）----
+Tests/
+DESIGN.md
+# 内部自动化工具（含本机路径，与产品无关）
+automation/zcode/
+
+# ---- 本地/敏感文件（不入库）----
+# ZCode 会话与本地配置
+.zcode/
+.agents/
+# 各类 agent 指令文件（个人/本地内容，不随仓库分发）
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.cursorrules
+.cursor/
+# 凭证与环境
+.env
+.env.*
+token
+*.token
+*.pem
+*.key
+*.log

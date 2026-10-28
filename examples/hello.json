@@ -1,0 +1,46 @@
+{
+  "id": "hello",
+  "name": "示例：数据加工流水线",
+  "version": 1,
+  "description": "演示 code + if + loop + action 的组合，以及外部 payload 注入",
+  "trigger": { "type": "manual" },
+  "nodes": [
+    {
+      "id": "seed",
+      "type": "code",
+      "name": "准备数据",
+      "code": "async function run(ctx) {\n  const payload = ctx.trigger.payload || {};\n  ctx.tools.log('收到输入:', JSON.stringify(payload));\n  const base = Number(payload.base) || 10;\n  return { base: base, items: [base + 1, base + 2, base + 3] };\n}"
+    },
+    {
+      "id": "check",
+      "type": "if",
+      "name": "有数据才继续",
+      "condition": "nodes.seed.output.items.length > 0",
+      "then": [
+        {
+          "id": "each",
+          "type": "loop",
+          "mode": "forEach",
+          "name": "逐项加工",
+          "over": "{{nodes.seed.output.items}}",
+          "body": [
+            {
+              "id": "double",
+              "type": "code",
+              "name": "乘二（超过 100 提前结束）",
+              "code": "async function run(ctx) {\n  const value = ctx.loop.item;\n  if (value > 100) { return { $loop: 'break' }; }\n  return { doubled: value * 2 };\n}"
+            }
+          ]
+        },
+        { "id": "pause", "type": "action", "name": "稍作停顿", "action": "delay", "params": { "ms": 10 } }
+      ],
+      "else": []
+    },
+    {
+      "id": "summary",
+      "type": "code",
+      "name": "汇总",
+      "code": "async function run(ctx) {\n  const results = ctx.nodes.each.output.results;\n  return { total: results.length, results: results };\n}"
+    }
+  ]
+}

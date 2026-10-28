@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TimingBomb Flow Definition",
+  "type": "object",
+  "required": ["id", "name", "nodes"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1 },
+    "description": { "type": "string" },
+    "trigger": { "$ref": "#/definitions/trigger" },
+    "nodes": { "type": "array", "items": { "$ref": "#/definitions/node" } }
+  },
+  "definitions": {
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["manual", "schedule", "webhook"] },
+        "cron": { "type": "string" },
+        "timezone": { "type": "string" },
+        "misfire": { "enum": ["skip", "fireOnce"] }
+      }
+    },
+    "nodeBase": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+        "type": { "enum": ["code", "if", "loop", "action"] },
+        "name": { "type": "string" },
+        "timeoutMs": { "type": "integer", "exclusiveMinimum": 0 },
+        "onError": { "enum": ["abort", "continue"] },
+        "retries": { "type": "integer", "minimum": 0 },
+        "skipIf": { "type": "string", "minLength": 1 }
+      }
+    },
+    "node": {
+      "oneOf": [
+        {
+          "allOf": [{ "$ref": "#/definitions/nodeBase" }],
+          "properties": {
+            "type": { "const": "code" },
+            "code": { "type": "string", "minLength": 1 }
+          },
+          "required": ["code"]
+        },
+        {
+          "allOf": [{ "$ref": "#/definitions/nodeBase" }],
+          "properties": {
+            "type": { "const": "if" },
+            "condition": { "type": "string", "minLength": 1 },
+            "then": { "type": "array", "items": { "$ref": "#/definitions/node" } },
+            "else": { "type": "array", "items": { "$ref": "#/definitions/node" } }
+          },
+          "required": ["condition"]
+        },
+        {
+          "allOf": [{ "$ref": "#/definitions/nodeBase" }],
+          "properties": {
+            "type": { "const": "loop" },
+            "mode": { "enum": ["count", "forEach", "while"] },
+            "over": { "type": "string" },
+            "condition": { "type": "string" },
+            "concurrency": { "type": "integer", "minimum": 1, "maximum": 32 },
+            "maxIterations": { "type": "integer", "minimum": 1, "maximum": 100000 },
+            "body": { "type": "array", "items": { "$ref": "#/definitions/node" } }
+          },
+          "required": ["mode"]
+        },
+        {
+          "allOf": [{ "$ref": "#/definitions/nodeBase" }],
+          "properties": {
+            "type": { "const": "action" },
+            "action": { "enum": ["delay", "http"] },
+            "params": { "type": ["object", "array", "string", "number", "boolean", "null"] }
+          },
+          "required": ["action"]
+        }
+      ]
+    }
+  }
+}

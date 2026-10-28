@@ -1,0 +1,35 @@
+{
+  "id": "claude-assist",
+  "name": "AI 助手示例：调用本机 Claude Code 处理输入",
+  "version": 1,
+  "description": "演示 ctx.tools.exec 调用系统级 claude CLI 并把结果回传流程（需先 tb allow add \"claude *\"）",
+  "trigger": { "type": "webhook" },
+  "nodes": [
+    {
+      "id": "ask",
+      "type": "code",
+      "name": "调用 Claude",
+      "timeoutMs": 180000,
+      "code": "async function run(ctx) {\n  const question = ctx.trigger.payload.question || \"用一句话介绍你自己\";\n  ctx.tools.log(\"提问:\", question);\n  const r = await ctx.tools.exec(\n    `claude -p ${JSON.stringify(question + \"（用中文简洁回答）\")}`,\n    { timeoutMs: 150000 }\n  );\n  if (r.exitCode !== 0) { ctx.tools.fail(\"claude 调用失败: \" + r.stderr.slice(0, 200)); }\n  return { question: question, answer: r.stdout.trim() };\n}"
+    },
+    {
+      "id": "check",
+      "type": "if",
+      "name": "有回答才通知",
+      "condition": "nodes.ask.output.answer.length > 0",
+      "then": [
+        {
+          "id": "notify",
+          "type": "action",
+          "name": "系统通知",
+          "action": "notify",
+          "params": {
+            "title": "Claude 回答（{{config.flowName}}）",
+            "body": "{{nodes.ask.output.answer}}"
+          }
+        }
+      ],
+      "else": []
+    }
+  ]
+}
