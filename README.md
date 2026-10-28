@@ -85,7 +85,7 @@ TimingBomb 是一款运行在 macOS 上的自动化任务编排软件：把任�
    ```
 
 2. 打开 TimingBomb.app：服务自动启动，右上角菜单栏出现常驻图标；「设置」页可开启**开机自启**（默认关闭）、切换**日间/夜晚/随系统**主题、一键安装 Skill 包
-3. 命令行（可选，跨平台）：`npm install -g timingbomb` 安装 Go 版 `tb` CLI（macOS / Linux / Windows）；局域网内其它机器可通过 `TIMING_BOMB_HOST` + `TIMING_BOMB_API_TOKEN` 远程调用本机服务（App 设置 → 连接信息 → 开启「允许 LAN 调用」）
+3. 给 AI Agent 安装 Skill（可选，跨平台）：`npm install -g timingbomb` 后，把 `$(npm root -g)/timingbomb` 软链到所用 agent 的 skills 目录——Claude Code `~/.claude/skills`、Codex `~/.codex/skills`、Pi `~/.pi/agent/skills` 等（完整指引见 [Skills/timingbomb/README.md](Skills/timingbomb/README.md)）；同时获得跨平台 Go 版 `tb` CLI，局域网内其它机器可通过 `TIMING_BOMB_HOST` + `TIMING_BOMB_API_TOKEN` 远程调用本机服务（App 设置 → 连接信息 → 开启「允许 LAN 调用」）
 
 数据目录：`~/Library/Application Support/TimingBomb/`（流程定义、运行历史、token）；日志：`~/Library/Logs/TimingBomb/daemon.log`。
 

@@ -1,35 +1,66 @@
-# TimingBomb — skill package & CLI client
+# TimingBomb Skill (npm)
 
-TimingBomb is a macOS automation orchestrator: flows are built from
-`code / if / loop / approval / action` nodes, node code runs JavaScript in a
-built-in sandbox, and flows are triggered manually, by cron schedule, by
-webhook, or by watching files.
+This npm package is the **TimingBomb skill** for AI coding agents: it teaches
+your agent (Claude Code, Codex, Pi, …) how to build, validate, dry-run and
+ship automation flows on [TimingBomb](https://github.com/KoLoRang/timing-bomb)
+— a macOS task orchestrator with `code / if / loop / approval / action` nodes,
+sandboxed JavaScript, and manual / cron / webhook / file-watch triggers.
 
-This npm package ships:
+The package also bundles the cross-platform `tb` CLI client (Go, prebuilt for
+macOS / Linux / Windows on amd64 + arm64), which the skill — and you — use to
+talk to a TimingBomb service.
 
-- **`tb`** — a cross-platform CLI client (Go, prebuilt for macOS / Linux /
-  Windows on amd64 + arm64) that talks to a TimingBomb service over its HTTP
-  API.
-- **The agent skill** (`SKILL.md` + JSON Schema + templates + examples) that
-  teaches AI agents how to create, validate, dry-run and ship TimingBomb
-  flows.
-
-## Install
+## 1. Install the package
 
 ```bash
-npm install -g timingbomb     # provides the `tb` command
+npm install -g timingbomb
 ```
 
-The tarball carries prebuilt binaries for every platform; a postinstall step
-prunes `assets/` down to your own platform (`tb-darwin-arm64` etc.), so only
-one ~6 MB binary stays on disk. (npm ≥ 11 may print an install-scripts
-warning — the prune is best-effort and never blocks the install.)
+This gives you the `tb` command (a postinstall step prunes `assets/` down to
+your platform's single binary), plus the skill folder at
+`$(npm root -g)/timingbomb`.
 
-The TimingBomb service itself runs on a Mac (the SwiftUI app hosts the
-daemon). This client works from any machine — locally on the Mac, or remotely
-from anywhere on the LAN.
+## 2. Link the skill into your agent(s)
 
-## Usage
+Agents discover skills from their own skill directories. Symlink the package
+folder there — pick the agents you use (all optional, mix freely):
+
+```bash
+SKILL="$(npm root -g)/timingbomb"
+
+# Claude Code
+mkdir -p ~/.claude/skills && ln -sfn "$SKILL" ~/.claude/skills/timingbomb
+
+# Codex
+mkdir -p ~/.codex/skills && ln -sfn "$SKILL" ~/.codex/skills/timingbomb
+
+# Pi
+mkdir -p ~/.pi/agent/skills && ln -sfn "$SKILL" ~/.pi/agent/skills/timingbomb
+
+# Generic agents.md convention (works with any agent that reads ~/.agents/skills)
+mkdir -p ~/.agents/skills && ln -sfn "$SKILL" ~/.agents/skills/timingbomb
+```
+
+Restart the agent (or start a new session) and the `timingbomb` skill is
+available — just ask, e.g. *"create a flow that fetches X every day at 9 and
+notifies me"*.
+
+Project-level alternative (only this repo's agent sessions see the skill):
+
+```bash
+npm install timingbomb
+mkdir -p .claude/skills && ln -sfn "$(pwd)/node_modules/timingbomb" .claude/skills/timingbomb
+# same pattern works for .codex/skills, .pi/agent/skills, …
+```
+
+On the Mac, the TimingBomb app can also install the skill for you:
+Settings → Skill → Install (copies to `~/.agents/skills` and links every
+agent directory that already exists).
+
+## 3. The service & remote usage
+
+The TimingBomb service runs on a Mac (the SwiftUI app hosts the daemon).
+The `tb` CLI works from any machine:
 
 ```bash
 tb status                                     # service health / version
@@ -41,10 +72,8 @@ tb runs list --limit 10                       # run history
 tb allow add "git *"                          # shell allowlist rule
 ```
 
-### Talking to a remote TimingBomb service
-
-On the Mac hosting TimingBomb: Settings → Connection → enable **Allow LAN
-access**, and copy the **API Token**. Then from any machine:
+From another machine on the LAN, on the hosting Mac enable
+Settings → Connection → **Allow LAN access** and copy the **API Token**, then:
 
 ```bash
 export TIMING_BOMB_HOST=192.168.1.5           # IP / host / host:port / http(s)://…
@@ -52,8 +81,8 @@ export TIMING_BOMB_API_TOKEN=<token from that Mac>
 tb status
 ```
 
-When `TIMING_BOMB_HOST` is unset, `tb` targets `http://127.0.0.1:47632` and
-reads the local token file.
+Without `TIMING_BOMB_HOST`, `tb` targets `http://127.0.0.1:47632` and reads
+the local token file. Full agent guidance lives in `SKILL.md`.
 
 ## License
 
