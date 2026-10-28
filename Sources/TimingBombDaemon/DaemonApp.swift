@@ -65,6 +65,7 @@ public final class DaemonApp: @unchecked Sendable {
     public let token: String
     public let configuredPort: UInt16
     private var router: Router? = nil
+    private var currentServer: MiniHTTPServer? = nil
 
     init(
         store: Store, engine: FlowEngine, runs: RunService, approvals: ApprovalService,
@@ -139,10 +140,21 @@ public final class DaemonApp: @unchecked Sendable {
         await fileWatch.reload()
 
         let flowCount = (try? await store.listFlows().count) ?? 0
+        let lanAccess = await store.lanAccessEnabled()
         print(
             L10n.t(
-                "TimingBomb v{version} — listening on http://127.0.0.1:{port}",
-                ["version": Self.version, "port": String(server.port)]))
+                "TimingBomb v{version} — listening on http://{host}:{port}",
+                [
+                    "version": Self.version,
+                    "host": lanAccess ? "0.0.0.0" : "127.0.0.1",
+                    "port": String(server.port),
+                ]))
+        if lanAccess {
+            print(
+                L10n.t(
+                    "LAN access enabled — the API is reachable from the local network (token still required)"
+                ))
+        }
         print(
             L10n.t(
                 "data dir: {path} ({count} flow(s) registered)",
@@ -153,18 +165,41 @@ public final class DaemonApp: @unchecked Sendable {
         }
     }
 
-    /// Starts the HTTP server and returns it (does not block). Used by `start()` and tests.
+    /// Starts the HTTP server and returns it (does not block). Used by `start()`, tests,
+    /// and the LAN-access toggle (which restarts the listener on the new bind address).
     @discardableResult
     public func startServer() async throws -> MiniHTTPServer {
         let router = buildRouter()
         self.router = router
 
-        let server = try MiniHTTPServer(port: configuredPort) { [weak self] request in
+        let allowLAN = await store.lanAccessEnabled()
+        let server = try MiniHTTPServer(port: configuredPort, allowLAN: allowLAN) { [weak self] request in
             guard let self else { return .error(500, code: "daemonShuttingDown", template: "daemon is shutting down") }
             return await self.handle(request)
         }
         try await server.start()
+        currentServer = server
         return server
+    }
+
+    /// Rebinds the listener after the LAN-access flag changed: the old server is
+    /// stopped first (same port), with a short grace so the socket fully closes.
+    /// On failure the previous flag is restored so the API stays reachable.
+    public func restartServer(previousLAN: Bool? = nil) async throws {
+        let old = currentServer
+        old?.stop()
+        if old != nil {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+        do {
+            _ = try await startServer()
+        } catch {
+            if let previousLAN {
+                try? await store.setSetting("lanAccess", previousLAN ? "true" : "false")
+                _ = try? await startServer()
+            }
+            throw error
+        }
     }
 
     // MARK: Request handling
@@ -418,9 +453,11 @@ public final class DaemonApp: @unchecked Sendable {
             guard let self else { return .error(500, code: "daemonUnavailable", template: "daemon unavailable") }
             return await self.responding {
                 let logging = await self.store.loggingEnabled()
+                let lanAccess = await self.store.lanAccessEnabled()
                 return .json(
                     JSONValue.object([
                         "loggingEnabled": .bool(logging),
+                        "lanAccess": .bool(lanAccess),
                     ]))
             }
         }
@@ -435,10 +472,25 @@ public final class DaemonApp: @unchecked Sendable {
                     }
                     try await self.store.setSetting("loggingEnabled", enabled ? "true" : "false")
                 }
+                if let value = body["lanAccess"] {
+                    guard let enabled = value.boolValue else {
+                        throw TBError.invalidRequest("lanAccess must be a boolean")
+                    }
+                    let previousLAN = await self.store.lanAccessEnabled()
+                    try await self.store.setSetting("lanAccess", enabled ? "true" : "false")
+                    do {
+                        try await self.restartServer(previousLAN: previousLAN)
+                    } catch {
+                        throw TBError.internalError(
+                            "failed to rebind the listener: \(error.localizedDescription)")
+                    }
+                }
                 let logging = await self.store.loggingEnabled()
+                let lanAccess = await self.store.lanAccessEnabled()
                 return .json(
                     JSONValue.object([
                         "loggingEnabled": .bool(logging),
+                        "lanAccess": .bool(lanAccess),
                     ]))
             }
         }

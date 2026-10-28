@@ -389,6 +389,12 @@ public final class Store: Sendable {
         ((try? await setting("loggingEnabled")) ?? nil).map { $0 == "true" } ?? true
     }
 
+    /// Whether the HTTP API also listens on LAN interfaces (off by default;
+    /// off means loopback-only).
+    public func lanAccessEnabled() async -> Bool {
+        ((try? await setting("lanAccess")) ?? nil).map { $0 == "true" } ?? false
+    }
+
     // MARK: Deleting run records
 
     @discardableResult

@@ -71,8 +71,9 @@ public struct HTTPResponse: Sendable {
 
 // MARK: - Server
 
-/// A minimal HTTP/1.1 server for the local API: binds to 127.0.0.1 only,
-/// parses Content-Length bodies, and closes the connection after each response.
+/// A minimal HTTP/1.1 server for the local API: binds to 127.0.0.1, or to all
+/// interfaces when `allowLAN` is set, parses Content-Length bodies, and closes
+/// the connection after each response.
 public final class MiniHTTPServer: @unchecked Sendable {
     public typealias Handler = @Sendable (HTTPRequest) async -> HTTPResponse
 
@@ -81,9 +82,16 @@ public final class MiniHTTPServer: @unchecked Sendable {
     private let serveQueue = DispatchQueue(label: "tb.http.server")
     public private(set) var port: UInt16 = 0
 
-    public init(port: UInt16, handler: @escaping Handler) throws {
+    public init(port: UInt16, allowLAN: Bool = false, handler: @escaping Handler) throws {
         let params = NWParameters.tcp
         if port != 0, let endpointPort = NWEndpoint.Port(rawValue: port) {
+            if allowLAN {
+                // No requiredLocalEndpoint → NWListener binds the wildcard
+                // address (every interface, LAN included).
+                listener = try NWListener(using: params, on: endpointPort)
+                self.handler = handler
+                return
+            }
             params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: endpointPort)
         }
         listener = try NWListener(using: params)

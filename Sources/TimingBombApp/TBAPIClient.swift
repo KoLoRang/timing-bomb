@@ -184,6 +184,18 @@ enum TBAPIClient {
         _ = try await request("PUT", "settings", body: body)
     }
 
+    static func lanAccessEnabled() async throws -> Bool {
+        let data = try await request("GET", "settings")
+        let value = try TBJSON.decodeData(JSONValue.self, from: data)
+        return value["lanAccess"]?.boolValue ?? false
+    }
+
+    static func setLanAccess(_ enabled: Bool) async throws {
+        let body = try TBJSON.encodeData(
+            JSONValue.object(["lanAccess": .bool(enabled)]))
+        _ = try await request("PUT", "settings", body: body)
+    }
+
     static func approvals() async throws -> [ApprovalRecord] {
         let data = try await request("GET", "approvals")
         let value = try TBJSON.decodeData(JSONValue.self, from: data)
