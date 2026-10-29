@@ -10,6 +10,9 @@ TimingBomb is a task-orchestration service that runs on a Mac (usually the local
 ## Prerequisites & environment detection
 
 - Install the CLI: `npm install -g timingbomb` (provides `tb`).
+  - Target machine cannot reach registry.npmjs.org (e.g. restricted DNS)? Copy the
+    matching prebuilt binary from `assets/` (`tb-linux-amd64`, `tb-darwin-arm64`,
+    `tb-windows-amd64.exe`, …) onto it, put it on PATH, and call it directly.
 - The TimingBomb service must be running. **Before doing anything, decide whether you are in a local or a remote environment** (see below).
 
 ### Step 1 — detect local vs. remote
@@ -39,7 +42,9 @@ Guide the user through two steps **on the remote Mac**:
 
 Verify: `tb status` with the variables set should print `daemon: running (…) — http://<host>:<port>`.
 
-Gotchas: setting only `TIMING_BOMB_HOST` without `TIMING_BOMB_API_TOKEN` fails immediately; a wrong token still passes `tb status` (health is unauthenticated) but business commands (flow/run/…) return 401 — trust the business commands.
+VPN/Tailscale: with LAN access on, the service listens on **every** interface — including VPN tunnels. For machines outside the LAN (cloud servers, another office), use the Mac's Tailscale IP (`100.x.y.z`): both sides must be on the same tailnet (`tailscale status`), and `nc -z <host> 47632` should succeed. This is the easiest way to drive a home Mac from a server.
+
+Gotchas: setting only `TIMING_BOMB_HOST` without `TIMING_BOMB_API_TOKEN` fails immediately; a wrong token still passes `tb status` (health is unauthenticated) but business commands (flow/run/…) return 401 — trust the business commands. When creating flows whose code nodes contain JS quotes **over SSH**, prefer `--file` with a transferred file — multiple shell layers mangle inline stdin escaping.
 
 Note: `tb serve` does not exist in this client. The service always runs inside the TimingBomb Mac app (or from the Swift sources on that Mac).
 

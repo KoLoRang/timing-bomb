@@ -18,9 +18,24 @@ func newFlagSet(name string) *flag.FlagSet {
 }
 
 func parseOrDie(fs *flag.FlagSet, args []string) {
-	if err := fs.Parse(reorder(args)); err != nil {
+	if err := fs.Parse(reorder(normalizeFlags(args))); err != nil {
 		fail(fmt.Sprintf("%s: %v (see `tb help`)", fs.Name(), err))
 	}
+}
+
+// normalizeFlags accepts kebab-case spellings (`--flow-id`) for the camelCase
+// flags Go defines (`--flowId`), keeping compatibility with the old Swift CLI.
+func normalizeFlags(args []string) []string {
+	out := make([]string, len(args))
+	for i, arg := range args {
+		switch arg {
+		case "-flow-id", "--flow-id":
+			out[i] = "--flowId"
+		default:
+			out[i] = arg
+		}
+	}
+	return out
 }
 
 // reorder moves leading positional arguments to the end. Go's flag package

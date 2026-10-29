@@ -286,7 +286,8 @@ struct NodeCard: View {
                         .foregroundStyle(statusColor(status.status))
                 }
                 if let status, status.executions > 1 {
-                    Text("×\(status.executions)")
+                    // verbatim keeps the count free of locale grouping ("1,000").
+                    Text(verbatim: "×\(status.executions)")
                         .font(.system(size: 9, weight: .bold))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)

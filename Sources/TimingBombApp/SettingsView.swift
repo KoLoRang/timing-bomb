@@ -257,7 +257,9 @@ struct SettingsView: View {
                 Text(lanError).font(.caption).foregroundStyle(.red)
             }
             LabeledContent(L10n.t("Local API")) {
-                Text("http://127.0.0.1:\(TBPaths.defaultPort)")
+                // verbatim: plain Text interpolation formats numbers with the
+                // locale (47632 → "47,632"), which corrupts the URL display.
+                Text(verbatim: "http://localhost:\(TBPaths.defaultPort)")
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
             }
@@ -298,9 +300,10 @@ struct SettingsView: View {
                 Text(L10n.t("External trigger example"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(
-                    "curl -X POST http://127.0.0.1:\(TBPaths.defaultPort)/hooks/<flowId> \\\n  -H \"Authorization: Bearer <token>\" \\\n  -d '{\"payload\": {}}'"
-                )
+            Text(
+                verbatim:
+                    "curl -X POST http://localhost:\(TBPaths.defaultPort)/hooks/<flowId> \\\n  -H \"Authorization: Bearer <token>\" \\\n  -d '{\"payload\": {}}'"
+            )
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)
                 .padding(6)

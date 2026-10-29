@@ -65,7 +65,9 @@ tb allow add "git *"                          # shell allowlist rule
 ```
 
 Remote usage — on the hosting Mac enable Settings → Connection → **Allow LAN
-access** and copy the **API Token**, then from any machine:
+access** and copy the **API Token**, then from any machine (a LAN IP or a
+Tailscale/VPN address both work — handy for reaching a Mac behind a home
+network from a cloud server):
 
 ```bash
 export TIMING_BOMB_HOST=192.168.1.5           # IP / host / host:port / http(s)://…
