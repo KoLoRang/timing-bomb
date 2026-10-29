@@ -73,9 +73,10 @@ tb logging on|off|status                      # run-history logging toggle
 0. At the start of a session, detect local/remote mode per "Prerequisites & environment detection" (for remote, configure `TIMING_BOMB_HOST` / `TIMING_BOMB_API_TOKEN` and verify with `tb status`);
 1. Generate the flow JSON from the user's request (structure below) plus the JS code for each `code` node;
 2. `tb flow validate` must report zero errors;
-3. Dry-run: `tb run <flowId> --input '<sample payload>' --dry-run --wait` (no side effects; unauthorized shell commands fail right here);
-4. Real run `tb run --wait` and check the output matches expectations;
-5. Report to the user; save with `tb flow create` only after confirmation (if shell access is needed, prompt the user to run `tb allow add`).
+3. Save the definition with `tb flow create` (saving does not execute the flow; if shell access is needed, prompt the user to run `tb allow add`);
+4. Dry-run: `tb run <flowId> --input '<sample payload>' --dry-run --wait` (no side effects; unauthorized shell commands fail right here);
+5. After inspecting the dry-run result and getting confirmation when needed, run `tb run <flowId> --input '<payload>' --wait` and check the output matches expectations;
+6. Report the result to the user.
 
 ## Flow JSON structure
 

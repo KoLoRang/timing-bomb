@@ -1,125 +1,231 @@
-[![Contributors][contributors-shield]][contributors-url]
-[![Forks][forks-shield]][forks-url]
-[![Stargazers][stars-shield]][stars-url]
-[![Issues][issues-shield]][issues-url]
 [![Platform][platform-shield]][platform-url]
 [![Swift][swift-shield]][swift-url]
+[![Issues][issues-shield]][issues-url]
 
 **English** · [简体中文](README.zh-CN.md)
 
-<br />
-<div align="center">
-  <h3>💣 TimingBomb</h3>
+# TimingBomb
 
-  <p align="center">
-    macOS automation orchestration — break tasks into node flows, trigger them by schedule / webhook / file changes, and let sandboxed JS nodes call local CLIs (e.g. Claude Code)
-    <br />
-    <a href="#quick-start"><strong>Get started »</strong></a>
-    <br />
-    <br />
-    <a href="#quick-start">Get started</a>
-    ·
-    <a href="https://github.com/KoLoRang/timing-bomb/issues">Report a bug</a>
-    ·
-    <a href="https://github.com/KoLoRang/timing-bomb/issues">Request a feature</a>
-  </p>
-</div>
+TimingBomb turns repeatable Mac tasks into executable workflows. Build a flow
+once, let the local service handle triggers and execution, and use an AI Agent
+only when the task needs reasoning, generation, or a decision.
 
-<details>
-  <summary>Table of contents</summary>
-  <ol>
-    <li><a href="#about">About</a></li>
-    <li>
-      <a href="#quick-start">Quick start</a>
-      <ul>
-        <li><a href="#requirements">Requirements</a></li>
-        <li><a href="#install">Install</a></li>
-        <li><a href="#build-from-source">Build from source</a></li>
-        <li><a href="#uninstall">Uninstall</a></li>
-      </ul>
-    </li>
-  </ol>
-</details>
+It is designed for local-first automation: the TimingBomb app runs the work on
+your Mac, the `tb` CLI controls it, and the TimingBomb Skill gives AI Agents a
+small, repeatable operating contract.
 
-## About
+## What it is good for
 
-TimingBomb is an automation orchestrator for macOS: tasks are broken into node flows to execute, with manual, external API, cron-schedule, and file-watch triggers. Node code runs JavaScript in a built-in sandbox (zero external dependencies) and can also drive local Python / Shell interpreters and system CLI tools such as Claude Code.
+- Scheduled jobs, webhooks, and file-arrival automations.
+- Multi-step work with conditions, loops, retries, delays, and approvals.
+- Local tools such as Claude Code, Git, Python, Shell, and AppleScript.
+- Repeatable pipelines where the Agent should prepare the workflow once and
+  the service should run it many times.
 
-Features:
+## How it works
 
-- **Visual orchestration**: five node types — `code / condition / loop / built-in action / approval` — editable in-app with a click (including a JS code editor)
-- **Manual approval**: flows suspend at approval nodes with a system notification; approve (resume from the breakpoint) or reject (terminate with a comment) in the Approvals page; pending/history split with one-click history clearing
-- **Four trigger types**: manual, external API (webhook), cron schedule (timezone + misfire policy), file watching (recursive + debounced)
-- **Multi-language code nodes**: JavaScript (default, embedded sandbox) / Python / Shell (system interpreters as subprocesses)
-- **Call system CLIs**: `ctx.tools.exec("claude -p '...'")` invokes Claude Code, git, or any local tool from a flow and returns the result (allowlist + enriched PATH)
-- **9 built-in actions**: delay / HTTP / shell / AppleScript (allowlisted) / system notification / open app / clipboard / workspace file read & write
-- **Security**: the local API binds 127.0.0.1 with token auth (LAN exposure opt-in); shell/AppleScript allowlists; JS runs in a separate killable subprocess; dry-run support with no side effects
-- **Observability**: the Runs page renders the full node graph with status coloring; click a node to inspect its input snapshot and output/logs; failures trigger system notifications
-- **AI collaboration**: `tb` CLI + Skill package let AI agents create, validate, dry-run and ship flows through one standard workflow
+| Part | Responsibility |
+| --- | --- |
+| **TimingBomb.app + daemon** | Runs flows on macOS, handles triggers, approvals, logs, and notifications. |
+| **Flow JSON** | Stores the executable workflow: nodes, triggers, inputs, and policies. |
+| **`tb` CLI** | Validates, saves, runs, and inspects flows through the local or remote API. |
+| **TimingBomb Skill** | Teaches an AI Agent the standard workflow without requiring the full schema in every conversation. |
 
-Tech stack:
+The service keeps deterministic work—filters, loops, waits, retries, and file
+operations—inside the flow. The Agent can then focus on intent, exceptions,
+and human decisions instead of replaying the same plan on every run. This is a
+practical way to reduce repeated context and token usage without making a
+fixed saving claim.
 
-- [Swift 6](https://www.swift.org/) / Swift Package Manager (multi-target: Core / Runner / Daemon / jsrunner / CLI / SwiftUI app)
-- [GRDB.swift](https://github.com/groue/GRDB.swift) (SQLite persistence)
-- Go for the cross-platform `tb` CLI client (see `cli/`, distributed on npm)
+## Core capabilities
 
-<p align="right">(<a href="#table-of-contents">back to top</a>)</p>
+- **Visual flow editor** with `code`, `if`, `loop`, `action`, and `approval`
+  nodes.
+- **Four trigger types**: manual, webhook, cron schedule, and recursive file
+  watch with debounce.
+- **Multiple runtimes**: JavaScript in a built-in sandbox, plus Python and
+  Shell through system interpreters.
+- **Local CLI integration**: JavaScript nodes can call allowlisted tools such
+  as `claude` and `git` through `ctx.tools.exec(...)`.
+- **Built-in actions** for HTTP, delays, notifications, apps, clipboard,
+  AppleScript, Shell, and workspace files.
+- **Safety controls**: loopback binding by default, token authentication,
+  shell/AppleScript allowlists, killable JS execution, and dry-run support.
+- **Run inspection**: node status, input snapshots, outputs, logs, approvals,
+  and failure notifications.
+
+## Fixed workflow for local Agents
+
+The Skill keeps Agent interactions short and predictable:
+
+1. **Detect the service** with `tb status`. Use local mode by default; use
+   `TIMING_BOMB_HOST` and `TIMING_BOMB_API_TOKEN` only for a remote Mac.
+2. **Generate or edit one Flow JSON** from the user's request. Put repeatable
+   logic in nodes and call a local Agent or CLI only where it adds value.
+3. **Validate** the definition before saving:
+
+   ```bash
+   tb flow validate --file flow.json
+   ```
+
+4. **Save the definition**. For a `manual` flow, saving only stores the
+   definition. A saved `schedule` or `fileWatch` flow becomes eligible for its
+   trigger, so use `manual` while validating:
+
+   ```bash
+   tb flow create --file flow.json
+   ```
+
+5. **Dry-run, inspect, then run for real**:
+
+   ```bash
+   tb run <flow-id> --dry-run --wait
+   tb run <flow-id> --wait
+   ```
+
+The full node schema, command dictionary, and Agent contract live in
+[`Skills/timingbomb/SKILL.md`](Skills/timingbomb/SKILL.md). The compact Skill
+README is at [`Skills/timingbomb/README.md`](Skills/timingbomb/README.md).
 
 ## Quick start
 
 ### Requirements
 
-- macOS 14+ (Apple Silicon; the DMG is an arm64 build)
-- Building from source requires the Xcode 16+ / Swift 6 toolchain
+- macOS 14 or later for the TimingBomb app and service.
+- Apple Silicon for the published arm64 DMG.
+- Node.js 16+ for the npm-distributed `tb` CLI.
+- Xcode 16+ and Swift 6 when building from source.
 
-### Install
+### 1. Install the macOS app
 
-1. Download the latest `TimingBomb-<version>-arm64.dmg` from [Releases](https://github.com/KoLoRang/timing-bomb/releases), open it, and drag **TimingBomb.app** to **Applications**. Or from the terminal:
+Download the latest `TimingBomb-<version>-arm64.dmg` from
+[Releases](https://github.com/KoLoRang/timing-bomb/releases), open it, and drag
+**TimingBomb.app** to **Applications**. The service starts when the app opens.
 
-   ```bash
-   hdiutil attach TimingBomb-<version>-arm64.dmg
-   cp -R "/Volumes/TimingBomb/TimingBomb.app" /Applications/   # or your applications folder
-   hdiutil detach /Volumes/TimingBomb
-   ```
-
-   > The CI-built DMG is ad-hoc signed and not notarized, so Gatekeeper warns on first launch. Go to System Settings → Privacy & Security → **Open Anyway**, or strip the quarantine flag: `xattr -dr com.apple.quarantine /Applications/TimingBomb.app`
-2. Open TimingBomb.app: the service starts automatically and a menu-bar icon appears. In Settings you can enable **launch at login** (off by default), switch the **light/dark/system** theme and UI language, and manage the API allowlist
-3. Install the skill for your AI agent (optional): `npx skills add KoLoRang/timing-bomb --skill timingbomb --agent <agent> -y` — `<agent>` supports `claude-code` / `codex` / `pi` / `qoder` / `cursor` and 70+ more, or `'*'` for every agent detected on this machine (project-level by default, `-g` for global; see [Skills/timingbomb/README.md](Skills/timingbomb/README.md))
-4. CLI (optional, cross-platform): `npm install -g timingbomb` installs the Go `tb` CLI (macOS / Linux / Windows). Other machines can call this Mac's service remotely with `TIMING_BOMB_HOST` + `TIMING_BOMB_API_TOKEN` — enable **Allow LAN access** in Settings → Connection first. VPN addresses work too: with LAN access on, the service listens on every interface, so a Tailscale IP (`100.x.y.z`) is the easiest way to reach a Mac behind a home network from a cloud server
-
-Data directory: `~/Library/Application Support/TimingBomb/` (flow definitions, run history, token). Logs: `~/Library/Logs/TimingBomb/daemon.log`.
-
-### Build from source
+The CI DMG is ad-hoc signed and not notarized. If Gatekeeper blocks the first
+launch, use **System Settings → Privacy & Security → Open Anyway**, or run:
 
 ```bash
-swift build             # compile (Xcode 16+ / Swift 6 toolchain)
-./scripts/make-dmg.sh   # package the DMG → dist/
+xattr -dr com.apple.quarantine /Applications/TimingBomb.app
 ```
 
-DMG packaging additionally needs Python 3.10+; the first run installs pinned `dmgbuild` dependencies into `.build/dmg-venv/` and requires network access. Packaging writes a 660 × 360 Finder install window with a 128-point icon and an Applications link — no Finder automation permission needed.
+### 2. Install the `tb` CLI
 
-Test sources are kept locally only and are not distributed with the repository. The default build registers no test targets, so a fresh checkout builds and packages directly without creating a `Tests/` directory. With local test sources present, opt in explicitly:
+The CLI is a cross-platform client; the service itself runs on macOS.
+
+```bash
+npm install -g timingbomb
+tb status
+```
+
+`tb status` should report a running daemon before an Agent creates or runs a
+flow.
+
+### 3. Install the Skill for an Agent
+
+This repository uses the `skills` CLI for Skill installation. If you call it
+“skilld”, the actual command is still `npx skills ...`; there is no separate
+`skilld install` command in this repository.
+
+For the current project, omit `-g`:
+
+```bash
+npx skills add KoLoRang/timing-bomb --skill timingbomb --agent codex -y
+```
+
+For a user-level install that can be used across projects, add `-g`:
+
+```bash
+npx skills add KoLoRang/timing-bomb --skill timingbomb --agent codex -g -y
+```
+
+Replace `codex` with `claude-code`, `pi`, `qoder`, `cursor`, or another
+supported Agent. To install for all supported Agents, quote the wildcard:
+
+```bash
+npx skills add KoLoRang/timing-bomb --skill timingbomb --agent '*' -g -y
+```
+
+Preview the installation first with:
+
+```bash
+npx skills add KoLoRang/timing-bomb --skill timingbomb --list
+```
+
+### 4. Run the included example
+
+Run these commands from the repository root (or download the example file
+from the repository first). The example is manual, so it will not start by
+itself:
+
+```bash
+tb flow validate --file examples/hello.json
+tb flow create --file examples/hello.json
+tb run hello --input '{"base":5}' --dry-run --wait
+tb run hello --input '{"base":5}' --wait
+```
+
+Dry-run skips external calls and writes, while still checking allowlists for
+commands reached by the run. It is useful for checking flow structure, but it
+does not prove that an external service, local Agent, or real command will
+return a particular result.
+
+## Remote execution
+
+On the Mac that hosts TimingBomb, open **Settings → Connection**, enable
+**Allow LAN access**, and copy the API token. Then configure the client machine:
+
+```bash
+export TIMING_BOMB_HOST=192.168.1.5
+export TIMING_BOMB_API_TOKEN='paste-token-from-the-host-Mac-here'
+tb status
+```
+
+`TIMING_BOMB_HOST` accepts an IP, hostname, `host:port`, or an `http(s)://`
+URL. A Tailscale/VPN address works when both machines can reach the service.
+
+## Development and packaging
+
+```bash
+swift build
+./scripts/make-dmg.sh
+```
+
+The DMG script needs Python 3.10+ and installs pinned `dmgbuild` dependencies
+into `.build/dmg-venv/` on first use. Local test sources are optional; when
+they are present, run:
 
 ```bash
 TIMINGBOMB_INCLUDE_TESTS=1 swift test
 ```
 
-### Uninstall
+Useful references:
 
-1. Disable **launch at login** in the app's Settings, stop the service, and quit the app
-2. `rm -rf /Applications/TimingBomb.app`
-3. Optional cleanup: `rm -rf ~/Library/Application\ Support/TimingBomb ~/Library/Logs/TimingBomb`; if you installed the CLI via npm: `npm uninstall -g timingbomb`
+- [`examples/hello.json`](examples/hello.json) — code, condition, loop, and action nodes.
+- [`examples/claude-assist.json`](examples/claude-assist.json) — calling a local Claude Code CLI.
+- [`Skills/timingbomb/schemas/flow.schema.json`](Skills/timingbomb/schemas/flow.schema.json) — full Flow schema.
 
-<p align="right">(<a href="#table-of-contents">back to top</a>)</p>
+## Data, logs, and uninstall
+
+- Data: `~/Library/Application Support/TimingBomb/`
+- Daemon log: `~/Library/Logs/TimingBomb/daemon.log`
+
+To uninstall, disable launch at login, stop and quit the app, then remove the
+application. Optional cleanup removes the data and logs; remove the CLI with
+`npm uninstall -g timingbomb`.
+
+```bash
+rm -rf /Applications/TimingBomb.app
+rm -rf ~/Library/Application\ Support/TimingBomb ~/Library/Logs/TimingBomb
+npm uninstall -g timingbomb
+```
+
+## License
+
+No open-source license is attached to the repository yet. See the GitHub
+repository for updates.
 
 <!-- MARKDOWN LINKS & IMAGES -->
-<!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-[contributors-shield]: https://img.shields.io/github/contributors/KoLoRang/timing-bomb.svg?style=for-the-badge
-[contributors-url]: https://github.com/KoLoRang/timing-bomb/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/KoLoRang/timing-bomb.svg?style=for-the-badge
-[forks-url]: https://github.com/KoLoRang/timing-bomb/network/members
-[stars-shield]: https://img.shields.io/github/stars/KoLoRang/timing-bomb.svg?style=for-the-badge
-[stars-url]: https://github.com/KoLoRang/timing-bomb/stargazers
 [issues-shield]: https://img.shields.io/github/issues/KoLoRang/timing-bomb.svg?style=for-the-badge
 [issues-url]: https://github.com/KoLoRang/timing-bomb/issues
 [platform-shield]: https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey?style=for-the-badge
