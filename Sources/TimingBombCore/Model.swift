@@ -55,6 +55,10 @@ public struct FlowNode: Codable, Equatable, Sendable {
     public var id: String
     public var type: NodeType
     public var name: String?
+    /// Human-readable documentation for the values this node expects.
+    public var inputDescription: String?
+    /// Human-readable documentation for the values this node produces.
+    public var outputDescription: String?
     public var timeoutMs: Int?
     public var onError: OnErrorPolicy?
     public var retries: Int?
@@ -90,6 +94,8 @@ public struct FlowNode: Codable, Equatable, Sendable {
         id: String,
         type: NodeType,
         name: String? = nil,
+        inputDescription: String? = nil,
+        outputDescription: String? = nil,
         timeoutMs: Int? = nil,
         onError: OnErrorPolicy? = nil,
         retries: Int? = nil,
@@ -111,6 +117,8 @@ public struct FlowNode: Codable, Equatable, Sendable {
         self.id = id
         self.type = type
         self.name = name
+        self.inputDescription = inputDescription
+        self.outputDescription = outputDescription
         self.timeoutMs = timeoutMs
         self.onError = onError
         self.retries = retries
@@ -132,6 +140,7 @@ public struct FlowNode: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, type, name, timeoutMs, onError, retries, skipIf
+        case inputDescription, outputDescription
         case language, code, condition
         case thenNodes = "then", elseNodes = "else"
         case mode, over, concurrency, maxIterations, body

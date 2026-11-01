@@ -41,6 +41,8 @@ fixed saving claim.
 
 - **Visual flow editor** with `code`, `if`, `loop`, `action`, and `approval`
   nodes.
+- **Reusable favorite nodes** with editable input/output notes, scripts and
+  action configuration. Save a configured node once and copy it into other flows.
 - **Four trigger types**: manual, webhook, cron schedule, and recursive file
   watch with debounce.
 - **Multiple runtimes**: JavaScript in a built-in sandbox, plus Python and
@@ -60,8 +62,10 @@ The Skill keeps Agent interactions short and predictable:
 
 1. **Detect the service** with `tb status`. Use local mode by default; use
    `TIMING_BOMB_HOST` and `TIMING_BOMB_API_TOKEN` only for a remote Mac.
-2. **Generate or edit one Flow JSON** from the user's request. Put repeatable
-   logic in nodes and call a local Agent or CLI only where it adds value.
+2. **Check favorites, then generate or edit one Flow JSON**. Use `tb node list`
+   and `tb node show <favorite-id>` to inspect suitable configured nodes and
+   reuse them. Put repeatable logic in nodes and call a local Agent or CLI only
+   where it adds value.
 3. **Validate** the definition before saving:
 
    ```bash
@@ -86,6 +90,39 @@ The Skill keeps Agent interactions short and predictable:
 The full node schema, command dictionary, and Agent contract live in
 [`Skills/timingbomb/SKILL.md`](Skills/timingbomb/SKILL.md). The compact Skill
 README is at [`Skills/timingbomb/README.md`](Skills/timingbomb/README.md).
+
+## Favorite nodes
+
+Select **Favorite Nodes** in the sidebar to browse saved nodes. Click a node to
+view its input/output descriptions and script or action configuration. Save
+nodes from their editor or from an existing flow, then add them to another
+workflow as independent copies. Conditional and loop nodes include their
+children; changing a favorite does not change copies already added to flows.
+The app adjusts conflicting IDs and recognized direct references. Check dynamic
+indexes, aliases, Python f-string expressions and notes after an ID changes.
+
+Every installation includes the built-in **Desktop notification** favorite
+(`builtin-desktop-notification`). It is ready to add to a flow and uses
+`trigger.payload.title` and `trigger.payload.message` as its title and body;
+you can edit those templates in the favorite detail page. This built-in favorite
+cannot be deleted; user-created favorites can. Notifications are sent natively
+by TimingBomb.app with its app icon, so keep the app running and allow its macOS
+notifications. A real run returns `{notified: true}` when the request is submitted;
+this does not confirm that macOS displayed it. A dry-run returns `{dryRun: true}`.
+
+```bash
+tb node list --json
+tb node show <favorite-id> --node-only > node.json
+tb node save --flow <flow-id> --node <node-id> --name "Notification channel"
+tb node save --file node.json
+tb node rm <favorite-id> # user-created favorites only
+```
+
+`--node-only` exports a node object to place in a flow definition. Review unique
+IDs and upstream references before validating the new flow. The optional
+`inputDescription` and `outputDescription` fields document required inputs and
+produced values. The Skill reuses suitable favorites first and suggests saving
+general-purpose nodes, such as notification channels, after creating a flow.
 
 ## Quick start
 
@@ -123,9 +160,7 @@ flow.
 
 ### 3. Install the Skill for an Agent
 
-This repository uses the `skills` CLI for Skill installation. If you call it
-“skilld”, the actual command is still `npx skills ...`; there is no separate
-`skilld install` command in this repository.
+Install the Skill with the `skills` CLI.
 
 For the current project, omit `-g`:
 
@@ -172,17 +207,24 @@ return a particular result.
 
 ## Remote execution
 
-On the Mac that hosts TimingBomb, open **Settings → Connection**, enable
-**Allow LAN access**, and copy the API token. Then configure the client machine:
+Prefer an SSH tunnel to the Mac's loopback service, or an HTTPS reverse proxy.
+For HTTPS, configure the client with the proxy URL and load
+`TIMING_BOMB_API_TOKEN` from a private environment or secret manager. Do not
+put real tokens in commands, scripts, flow definitions, or shared logs.
 
 ```bash
-export TIMING_BOMB_HOST=192.168.1.5
-export TIMING_BOMB_API_TOKEN='paste-token-from-the-host-Mac-here'
+export TIMING_BOMB_HOST=https://timingbomb.example.com:443
 tb status
+tb flow list # verifies authentication; status only checks service health
 ```
 
 `TIMING_BOMB_HOST` accepts an IP, hostname, `host:port`, or an `http(s)://`
-URL. A Tailscale/VPN address works when both machines can reach the service.
+URL. Direct LAN/VPN access requires **Settings → Connection → Allow LAN
+access**, which binds all network interfaces. Bearer authentication does not
+encrypt traffic. The CLI refuses non-loopback HTTP unless you explicitly set
+`TIMINGBOMB_ALLOW_INSECURE_HTTP=1`; use this only for a network you have chosen
+to trust, including a VPN/Tailscale connection. Keep LAN access off when using
+an SSH tunnel to the loopback service.
 
 ## Development and packaging
 
@@ -192,12 +234,31 @@ swift build
 ```
 
 The DMG script needs Python 3.10+ and installs pinned `dmgbuild` dependencies
-into `.build/dmg-venv/` on first use. Local test sources are optional; when
+into `.build/dmg-venv/` on first use. It detects a compatible Python on PATH;
+set `TB_PYTHON=/path/to/python3.12` to choose one explicitly. An older generated
+DMG tool environment is recreated automatically. Local test sources are optional; when
 they are present, run:
 
 ```bash
 TIMINGBOMB_INCLUDE_TESTS=1 swift test
 ```
+
+Release checks use disposable data and an automatically selected loopback
+port; they never connect to the installed service:
+
+```bash
+./scripts/build-cli.sh --all
+python3 scripts/release-smoke.py --daemon dist/app-staging/TimingBomb.app/Contents/MacOS/timingbombd --cli Skills/timingbomb/assets/tb-darwin-arm64
+python3 scripts/release-scan.py --source --app dist/app-staging/TimingBomb.app
+```
+
+For other manual checks, set `TIMINGBOMB_HOME` to a temporary directory and
+`TIMINGBOMB_PORT` to an unused loopback port. Never seed sample flows or test
+payloads into the normal data directory. CI verifies source, isolated runtime
+behavior, the mounted DMG and the npm archive on pull requests, `main` pushes,
+and manual runs. A matching `v<version>` tag publishes only after both package
+jobs pass. npm archives must include all six CLI platform binaries; the scanner
+rejects unexpected files, recognizable credentials and local build paths.
 
 Useful references:
 
@@ -209,6 +270,20 @@ Useful references:
 
 - Data: `~/Library/Application Support/TimingBomb/`
 - Daemon log: `~/Library/Logs/TimingBomb/daemon.log`
+
+The app uses owner-only data directories and files. Run history is enabled by
+default; completed runs are retained for 30 days. History and API run views
+redact common credential fields and recognizable token patterns. Pending
+approvals retain the original execution context in the private database so
+they can resume; terminal records are then redacted or removed when history
+is off. Existing historical content is not retroactively scrubbed. Protection
+uses file permissions, not database encryption; deletion or redaction does not
+guarantee immediate physical erasure from SQLite journals, snapshots or backups.
+
+Flow and favorite definitions, their descriptions and exported JSON preserve
+what you save. Keep credentials out of these fields and avoid logging secrets
+from node code. Redaction is a best-effort safeguard, not a secret vault or a
+guarantee against every sensitive value. Review exports and logs before sharing.
 
 To uninstall, disable launch at login, stop and quit the app, then remove the
 application. Optional cleanup removes the data and logs; remove the CLI with

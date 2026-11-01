@@ -40,6 +40,7 @@ public struct HTTPResponse: Sendable {
         let data = (try? TBJSON.encodeData(value)) ?? Data("{}".utf8)
         var response = HTTPResponse(status: status, body: data)
         response.headers["Content-Type"] = "application/json; charset=utf-8"
+        response.headers["Cache-Control"] = "no-store"
         return response
     }
 

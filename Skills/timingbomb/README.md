@@ -57,6 +57,8 @@ Mac (locally at `http://127.0.0.1:47632`, or remotely from any machine):
 ```bash
 tb status                                     # service health / version
 tb flow list                                  # list flows
+tb node list                                  # list reusable favorite nodes
+tb node show <favoriteId> --node-only          # export a node for use in another flow
 tb flow create --file myflow.json             # create / update a flow
 tb flow validate --file myflow.json           # validate without saving
 tb run myflow --input '{"base": 5}' --wait    # trigger and wait for the result
@@ -64,16 +66,62 @@ tb runs list --limit 10                       # run history
 tb allow add "git *"                          # shell allowlist rule
 ```
 
-Remote usage — on the hosting Mac enable Settings → Connection → **Allow LAN
-access** and copy the **API Token**, then from any machine (a LAN IP or a
-Tailscale/VPN address both work — handy for reaching a Mac behind a home
-network from a cloud server):
+## Reuse favorite nodes
+
+Open **Favorite Nodes** in the app to browse saved nodes, then select one to
+read its input/output notes and script or action configuration. Nodes can be
+favorited from their editor or selected from existing flows. Adding one to
+another flow creates an independent copy, including nested children.
+
+New installations include the ready-to-use **Desktop notification** favorite
+(`builtin-desktop-notification`). It maps `trigger.payload.title` to the
+notification title and `trigger.payload.message` to the body. Reuse it directly
+or edit its templates in the app. The built-in favorite cannot be deleted;
+user-created favorites can. TimingBomb.app sends native macOS notifications with
+its app icon and must be running with notifications allowed. A real run returns
+`{notified: true}` for a submitted request, not proof that macOS displayed it;
+a dry-run returns `{dryRun: true}`.
 
 ```bash
-export TIMING_BOMB_HOST=192.168.1.5           # IP / host / host:port / http(s)://…
-export TIMING_BOMB_API_TOKEN=<token from that Mac>
-tb status
+tb node list --json
+tb node show <favoriteId>                     # notes, source and full node configuration
+tb node show <favoriteId> --node-only > node.json
+tb node save --flow myflow --node notify --name "Desktop notification"
+tb node save --file node.json --name "Reusable step"
+tb node rm <favoriteId>                     # user-created favorites only
 ```
+
+The Skill checks suitable favorites before creating a flow, verifies their
+inputs and dependencies, and reuses them where appropriate. Node JSON supports
+optional `inputDescription` and `outputDescription` notes. It also suggests
+favoriting useful general-purpose nodes such as notification channels after
+creating a flow, without saving them automatically. See [SKILL.md](SKILL.md#favorite-nodes)
+for copying rules, including unique IDs and upstream references.
+
+## Remote access and private data
+
+Prefer an SSH tunnel to the Mac's loopback service or an HTTPS reverse proxy.
+Load `TIMING_BOMB_API_TOKEN` from a private environment or secret manager;
+avoid putting real tokens in shell history or shared files.
+
+```bash
+export TIMING_BOMB_HOST=https://timingbomb.example.com:443
+tb status
+tb flow list # authenticated check
+```
+
+Direct LAN/VPN access requires **Allow LAN access** on the hosting Mac and
+binds every network interface. Non-loopback HTTP requires the explicit
+`TIMINGBOMB_ALLOW_INSECURE_HTTP=1` opt-in, including on Tailscale/VPN; bearer
+authentication alone does not encrypt traffic. Choose a trusted network or
+use HTTPS instead.
+
+Do not embed secrets in flows, favorite nodes, input/output notes or exports.
+Run history is enabled by default, redacts common credentials and retains
+completed runs for 30 days. Pending approval contexts stay in the private
+database for execution to resume. Redaction is best effort; existing history
+is not retroactively scrubbed. Review files before sharing them, and use a
+temporary `TIMINGBOMB_HOME` plus an unused `TIMINGBOMB_PORT` for testing.
 
 ## License
 

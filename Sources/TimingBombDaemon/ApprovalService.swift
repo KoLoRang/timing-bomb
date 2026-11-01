@@ -38,7 +38,7 @@ public actor ApprovalService {
         }
 
         let decided = try await store.decideApproval(
-            id: approvalId, status: decision.rawValue, comment: comment)
+            id: approvalId, status: decision.rawValue, comment: comment.map(SensitiveData.redact))
             ?? approval
 
         switch decision {
@@ -63,10 +63,10 @@ public actor ApprovalService {
             run.error = L10n.t(
                 "approval rejected{commentSuffix} (node {node})",
                 ["commentSuffix": commentSuffix, "node": approval.nodeName ?? approval.nodeId])
-            try await store.saveRun(run)
+            try await runs.completeApprovalRejection(run)
             await notifier.notify(
-                title: L10n.t("TimingBomb · {name} was rejected", ["name": run.flowName]),
-                body: run.error ?? "")
+                title: L10n.t("A TimingBomb workflow was rejected"),
+                body: L10n.t("Open the Runs page to view details."))
         }
         return decided
     }

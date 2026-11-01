@@ -35,6 +35,7 @@ TimingBomb 把重复的 macOS 任务变成可执行的工作流：流程只需�
 ## 核心能力
 
 - **可视化流程编辑**：支持 `code`、`if`、`loop`、`action`、`approval` 节点。
+- **收藏节点复用**：保存配置好的节点，在其他工作流中复用，附带可编辑的入参、出参说明及脚本或动作配置。
 - **四种触发方式**：手动、Webhook、Cron 定时、递归文件监听（带去抖）。
 - **多种运行时**：JavaScript 内置沙箱，以及通过系统解释器运行的 Python、Shell。
 - **本机 CLI 集成**：JavaScript 节点可通过 `ctx.tools.exec(...)` 调用白名单工具，
@@ -50,8 +51,9 @@ Skill 将 Agent 的操作压缩成一条稳定流程：
 
 1. **检测服务**：执行 `tb status`。默认使用本机；远程 Mac 才设置
    `TIMING_BOMB_HOST` 和 `TIMING_BOMB_API_TOKEN`。
-2. **生成或修改一个 Flow JSON**：把可重复逻辑写进节点，只在确实需要时调用
-   本地 Agent 或 CLI。
+2. **先查收藏，再生成或修改 Flow JSON**：通过 `tb node list` 和
+   `tb node show <favorite-id>` 查看适用的已配置节点并优先复用。把可重复逻辑
+   写进节点，只在确实需要时调用本地 Agent 或 CLI。
 3. **先校验，不保存错误定义**：
 
    ```bash
@@ -76,6 +78,34 @@ Skill 将 Agent 的操作压缩成一条稳定流程：
 完整节点 Schema、命令字典和 Agent 约定见
 [`Skills/timingbomb/SKILL.md`](Skills/timingbomb/SKILL.md)，精简安装说明见
 [`Skills/timingbomb/README.md`](Skills/timingbomb/README.md)。
+
+## 收藏节点
+
+点击左侧“收藏节点”查看列表，选择一项即可查看入参说明、出参说明和脚本或动作配置。
+可在节点编辑页直接收藏，或从现有工作流中选择节点保存；加入其他工作流时创建独立副本。
+条件和循环节点会包含其子节点，编辑收藏不会影响已加入工作流的副本。
+App 会调整重名 ID 和可识别的直接引用；ID 变化后，请检查动态索引、变量别名、
+Python f-string 表达式及入出参说明。
+
+每次安装都会预置一个“桌面通知”收藏节点（`builtin-desktop-notification`），
+可以直接添加到工作流。它默认使用 `trigger.payload.title` 作为标题、
+`trigger.payload.message` 作为正文，也可以在收藏详情页编辑模板。这个内置收藏不可删除，
+用户自建收藏可以删除。通知由 TimingBomb.app 原生发送并使用 App 图标，需要保持 App
+运行并允许其 macOS 通知权限。正式运行返回 `{notified: true}` 表示已提交请求，
+不代表 macOS 已显示通知；dry-run 返回 `{dryRun: true}`。
+
+```bash
+tb node list --json
+tb node show <favorite-id> --node-only > node.json
+tb node save --flow <flow-id> --node <node-id> --name "通知方式"
+tb node save --file node.json
+tb node rm <favorite-id> # 仅可删除用户自建收藏
+```
+
+`--node-only` 导出可放入工作流定义的节点对象。复用时检查节点 ID 唯一性和上游引用，
+再校验新工作流。节点的 `inputDescription`、`outputDescription` 字段用于说明所需输入
+和产生的输出。Skill 会优先复用适用的收藏，并在创建流程后提示将通知方式等通用节点
+加入收藏；提示不会阻断创建，也不会自动收藏。
 
 ## 快速开始
 
@@ -112,8 +142,7 @@ tb status
 
 ### 3. 为 Agent 安装 Skill
 
-本项目使用 `skills` CLI 安装 Skill。如果你把它称为“skilld”，实际命令仍然是
-`npx skills ...`；仓库中没有单独的 `skilld install` 命令。
+使用 `skills` CLI 安装 Skill。
 
 只给当前项目安装时，不加 `-g`：
 
@@ -157,17 +186,21 @@ dry-run 会跳过外部调用和写入，但仍会检查运行到的命令是否
 
 ## 远程执行
 
-在承载 TimingBomb 的 Mac 上打开 **设置 → 连接信息**，开启 **允许 LAN 调用**
-并复制 API Token，然后在客户端机器上设置：
+优先使用连接到 Mac 回环服务的 SSH 隧道，或 HTTPS 反向代理。使用 HTTPS 时，
+把客户端地址设为代理 URL，并通过私有环境配置或密钥管理器载入
+`TIMING_BOMB_API_TOKEN`。不要把真实 Token 写进命令、脚本、工作流定义或共享日志。
 
 ```bash
-export TIMING_BOMB_HOST=192.168.1.5
-export TIMING_BOMB_API_TOKEN='粘贴主机 Mac 上的 token'
+export TIMING_BOMB_HOST=https://timingbomb.example.com:443
 tb status
+tb flow list # 验证鉴权；status 仅检查服务健康状态
 ```
 
-`TIMING_BOMB_HOST` 支持 IP、主机名、`host:port` 或 `http(s)://` URL。两台机器
-可以互相访问时，也可以使用 Tailscale/VPN 地址。
+`TIMING_BOMB_HOST` 支持 IP、主机名、`host:port` 或 `http(s)://` URL。直接通过
+LAN/VPN 访问需要开启 **设置 → 连接信息 → 允许 LAN 调用**，此时会监听所有网络接口。
+Bearer 鉴权不会加密传输。CLI 默认拒绝非回环地址的 HTTP；只有确认信任该网络后，
+才显式设置 `TIMINGBOMB_ALLOW_INSECURE_HTTP=1`，Tailscale/VPN 也适用这一规则。
+通过 SSH 隧道访问回环服务时，可以保持 LAN 调用关闭。
 
 ## 开发与打包
 
@@ -177,11 +210,27 @@ swift build
 ```
 
 DMG 脚本需要 Python 3.10+；首次运行会把固定版本的 `dmgbuild` 依赖安装到
-`.build/dmg-venv/`。测试源码是可选的；本地存在测试源码时运行：
+`.build/dmg-venv/`。脚本会从 PATH 选择兼容版本，也可以设置
+`TB_PYTHON=/path/to/python3.12` 显式指定；旧版 Python 创建的 DMG 工具环境会自动重建。
+测试源码是可选的；本地存在测试源码时运行：
 
 ```bash
 TIMINGBOMB_INCLUDE_TESTS=1 swift test
 ```
+
+发布检查使用临时数据目录和自动选择的回环端口，不会连接已安装的服务：
+
+```bash
+./scripts/build-cli.sh --all
+python3 scripts/release-smoke.py --daemon dist/app-staging/TimingBomb.app/Contents/MacOS/timingbombd --cli Skills/timingbomb/assets/tb-darwin-arm64
+python3 scripts/release-scan.py --source --app dist/app-staging/TimingBomb.app
+```
+
+其他手动验证也应把 `TIMINGBOMB_HOME` 设为临时目录、`TIMINGBOMB_PORT` 设为未占用的
+回环端口，不要向正常数据目录写入示例流程或测试数据。PR、`main` 推送和手动运行 CI
+都会检查源码、隔离运行行为、挂载后的 DMG 和 npm 包。版本一致的 `v<version>` 标签
+仅在两个打包任务通过后发布。npm 包必须包含全部六个平台的 CLI，扫描会拒绝意外文件、
+可识别的凭据和本机构建路径。
 
 参考文件：
 
@@ -193,6 +242,16 @@ TIMINGBOMB_INCLUDE_TESTS=1 swift test
 
 - 数据目录：`~/Library/Application Support/TimingBomb/`
 - daemon 日志：`~/Library/Logs/TimingBomb/daemon.log`
+
+数据目录及文件仅允许当前用户访问。运行历史默认开启，结束的运行记录保留 30 天；
+历史记录和 API 运行视图会遮蔽常见凭据字段及可识别的 Token 格式。等待审批的运行会在
+私有数据库中保留原始执行上下文，以便继续执行；运行结束后保存脱敏记录，关闭历史时
+则移除记录。既有历史内容不会自动回溯清洗。此保护基于文件权限，数据库并未加密；
+删除或脱敏不保证 SQLite 日志、文件系统快照及备份中的原文立即被物理擦除。
+
+工作流、收藏节点、入出参说明及导出的 JSON 会保留保存的原文，不应包含凭据；节点代码
+也应避免输出秘密值。脱敏属于尽力防护，不能代替密钥管理，也不能保证识别所有敏感内容。
+共享导出文件或日志前请检查内容。
 
 卸载前先在设置中关闭开机自启，停止服务并退出 App，再删除应用。需要时一并
 清理数据和日志；npm CLI 用 `npm uninstall -g timingbomb` 删除。

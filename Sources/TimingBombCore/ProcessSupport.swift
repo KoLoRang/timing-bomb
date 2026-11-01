@@ -173,10 +173,10 @@ public struct SubprocessScriptRunner: ScriptRunning {
             throw TBError.validation("unsupported script language: \(language)")
         }
 
-        let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("tb-script-\(UUID().uuidString).\(suffix)")
-        try Data(script.utf8).write(to: scriptURL)
-        defer { try? FileManager.default.removeItem(at: scriptURL) }
+        let scriptDirectory = try PrivateFiles.temporaryDirectory(prefix: "tb-script")
+        defer { try? FileManager.default.removeItem(at: scriptDirectory) }
+        let scriptURL = scriptDirectory.appendingPathComponent("script.\(suffix)")
+        try PrivateFiles.write(Data(script.utf8), to: scriptURL)
 
         let stdin = try TBJSON.encodeData(ctx)
         let result = try await CoreProcess.run(

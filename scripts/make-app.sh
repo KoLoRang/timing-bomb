@@ -3,20 +3,32 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${TB_VERSION:-0.1.0}"
+PACKAGE_VERSION="$(python3 -c 'import json; print(json.load(open("Skills/timingbomb/package.json"))["version"])')"
+VERSION="${TB_VERSION:-$PACKAGE_VERSION}"
+if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
+    echo "App and npm package versions must match" >&2
+    exit 1
+fi
 APP_NAME="TimingBomb.app"
 ROOT="$(pwd)"
 BUILD="$ROOT/.build/release"
 STAGING="$ROOT/dist/app-staging"
 
 echo "==> release build"
-swift build -c release
+env -u TIMINGBOMB_INCLUDE_TESTS swift build -c release \
+    -Xswiftc -file-prefix-map -Xswiftc "$ROOT=/timingbomb" \
+    -Xswiftc -debug-prefix-map -Xswiftc "$ROOT=/timingbomb" \
+    -Xcc "-ffile-prefix-map=$ROOT=/timingbomb"
 
 echo "==> assemble $APP_NAME"
 rm -rf "$STAGING"
 mkdir -p "$STAGING/$APP_NAME/Contents/MacOS" "$STAGING/$APP_NAME/Contents/Resources"
 
 cp "$BUILD/timingbombd" "$BUILD/TimingBombApp" "$BUILD/jsrunner" "$STAGING/$APP_NAME/Contents/MacOS/"
+# Strip local linker/debug paths before signing the distributable executables.
+for binary in timingbombd TimingBombApp jsrunner; do
+    strip -S "$STAGING/$APP_NAME/Contents/MacOS/$binary"
+done
 # The skill ships via `npx skills add` and the tb CLI via npm — nothing from
 # Skills/ or examples/ belongs inside the app bundle anymore.
 cp "$ROOT/README.md" "$STAGING/$APP_NAME/Contents/Resources/"
@@ -54,6 +66,8 @@ cat > "$STAGING/$APP_NAME/Contents/Info.plist" <<PLIST
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSUserNotificationAlertStyle</key>
+    <string>alert</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>
@@ -61,7 +75,7 @@ cat > "$STAGING/$APP_NAME/Contents/Info.plist" <<PLIST
 PLIST
 
 echo "==> ad-hoc codesign"
-for binary in timingbombd TimingBombApp; do
+for binary in timingbombd TimingBombApp jsrunner; do
     codesign --force --sign - --timestamp=none "$STAGING/$APP_NAME/Contents/MacOS/$binary"
 done
 codesign --force --sign - --timestamp=none "$STAGING/$APP_NAME"

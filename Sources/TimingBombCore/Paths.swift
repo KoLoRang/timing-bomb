@@ -30,6 +30,6 @@ public enum TBPaths {
     }
 
     public static func ensureHome() throws {
-        try FileManager.default.createDirectory(at: homeDir, withIntermediateDirectories: true)
+        try PrivateFiles.ensureDirectory(homeDir)
     }
 }

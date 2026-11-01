@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,6 +37,12 @@ func loadClient() (*client, error) {
 		if err != nil {
 			return nil, err
 		}
+		u, _ := url.Parse(base)
+		ip := net.ParseIP(u.Hostname())
+		loopback := strings.EqualFold(u.Hostname(), "localhost") || (ip != nil && ip.IsLoopback())
+		if u.Scheme == "http" && !loopback && os.Getenv("TIMINGBOMB_ALLOW_INSECURE_HTTP") != "1" {
+			return nil, fmt.Errorf("remote HTTP sends the API token unencrypted; use HTTPS or an SSH tunnel, or set TIMINGBOMB_ALLOW_INSECURE_HTTP=1 only on a trusted VPN/network")
+		}
 		return &client{baseURL: base, token: token}, nil
 	}
 
@@ -63,14 +70,14 @@ func remoteBaseURL(host string) (string, error) {
 	}
 	u, err := url.Parse(text)
 	if err != nil || u.Host == "" ||
-		(u.Scheme != "http" && u.Scheme != "https") ||
+		(u.Scheme != "http" && u.Scheme != "https") || u.User != nil ||
 		u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("invalid TIMING_BOMB_HOST: %s", host)
+		return "", fmt.Errorf("invalid TIMING_BOMB_HOST: expected an HTTP(S) host without credentials, path, query or fragment")
 	}
 	if u.Port() == "" {
-		return fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), localPort()), nil
+		u.Host = net.JoinHostPort(u.Hostname(), strconv.Itoa(localPort()))
 	}
-	return strings.TrimRight(text, "/"), nil
+	return u.String(), nil
 }
 
 func localPort() int {
@@ -111,7 +118,12 @@ func (c *client) request(method, path string, query url.Values, body []byte) ([]
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	}
-	resp, err := (&http.Client{Timeout: 10 * time.Minute}).Do(req)
+	// The API has no redirect routes. Do not forward credentials or request
+	// bodies to a redirect target, even on the same host or an HTTPS downgrade.
+	resp, err := (&http.Client{
+		Timeout:       10 * time.Minute,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+	}).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"cannot connect to daemon (%s). Is the TimingBomb service running and reachable?", c.baseURL)

@@ -32,6 +32,15 @@ token
 *.pem
 *.key
 *.log
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.tgz
+*.p12
+*.pfx
+__pycache__/
+*.py[cod]
 
 # npm 包二进制是构建产物（scripts/build-cli.sh），由 CI 构建发布，不入库
 Skills/timingbomb/assets/

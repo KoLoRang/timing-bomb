@@ -61,6 +61,31 @@ struct SettingRow: Codable, FetchableRecord, MutablePersistableRecord {
     var value: String
 }
 
+struct FavoriteNodeRow: Codable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "favoriteNodes"
+    var id: String
+    var name: String
+    var nodeJson: String
+    var sourceFlowName: String?
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(favorite: FavoriteNode) throws {
+        id = favorite.id
+        name = favorite.name
+        nodeJson = try TBJSON.encode(favorite.node)
+        sourceFlowName = favorite.sourceFlowName
+        createdAt = favorite.createdAt
+        updatedAt = favorite.updatedAt
+    }
+
+    func favorite() throws -> FavoriteNode {
+        FavoriteNode(
+            id: id, name: name, node: try TBJSON.decode(FlowNode.self, from: nodeJson),
+            sourceFlowName: sourceFlowName, createdAt: createdAt, updatedAt: updatedAt)
+    }
+}
+
 struct ApprovalRow: Codable, FetchableRecord, MutablePersistableRecord {
     static let databaseTableName = "approvals"
     var id: String
@@ -82,8 +107,29 @@ public final class Store: Sendable {
     private let dbQueue: DatabaseQueue
 
     public init(path: String) throws {
-        dbQueue = try DatabaseQueue(path: path)
+        if path != ":memory:" {
+            try Self.protectDatabaseFiles(path: path)
+        }
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in
+            // Clear deleted payloads from SQLite pages instead of leaving them
+            // recoverable in the freelist after history is removed.
+            try db.execute(sql: "PRAGMA secure_delete = ON")
+        }
+        dbQueue = try DatabaseQueue(path: path, configuration: configuration)
         try Self.migrate(dbQueue)
+        if path != ":memory:" {
+            try Self.protectDatabaseFiles(path: path)
+        }
+    }
+
+    private static func protectDatabaseFiles(path: String) throws {
+        // SQLite derives newly created sidecar permissions from the database.
+        // Also tighten files left behind by an earlier version before opening.
+        try PrivateFiles.ensureFile(URL(fileURLWithPath: path))
+        for suffix in ["-wal", "-shm", "-journal"] {
+            try PrivateFiles.ensureExistingFile(URL(fileURLWithPath: path + suffix))
+        }
     }
 
     private static func migrate(_ dbQueue: DatabaseQueue) throws {
@@ -148,6 +194,23 @@ public final class Store: Sendable {
                 t.add(column: "inputJson", .text)
             }
         }
+        migrator.registerMigration("v4_favorite_nodes") { db in
+            try db.create(table: "favoriteNodes") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("nodeJson", .text).notNull()
+                t.column("sourceFlowName", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+        }
+        migrator.registerMigration("v5_builtin_desktop_notification") { db in
+            let id = FavoriteNode.builtInDesktopNotificationID
+            guard try FavoriteNodeRow.fetchOne(db, key: id) == nil else { return }
+            let favorite = FavoriteNode.builtInDesktopNotification()
+            var row = try FavoriteNodeRow(favorite: favorite)
+            try row.insert(db)
+        }
         try migrator.migrate(dbQueue)
     }
 
@@ -208,6 +271,39 @@ public final class Store: Sendable {
     public func deleteFlow(id: String) async throws -> Bool {
         try await dbQueue.write { db in
             try FlowRow.deleteOne(db, key: id)
+        }
+    }
+
+    // MARK: Favorite nodes
+
+    public func listFavorites() async throws -> [FavoriteNode] {
+        try await dbQueue.read { db in
+            try FavoriteNodeRow.order(Column("updatedAt").desc, Column("name"), Column("id"))
+                .fetchAll(db).map { try $0.favorite() }
+        }
+    }
+
+    /// The host owns timestamps; updating a favorite keeps its original creation date.
+    @discardableResult
+    public func upsertFavorite(_ favorite: FavoriteNode) async throws -> FavoriteNode {
+        try await dbQueue.write { db in
+            let now = Date()
+            var saved = favorite
+            saved.createdAt = try FavoriteNodeRow.fetchOne(db, key: favorite.id)?.createdAt ?? now
+            saved.updatedAt = now
+            var row = try FavoriteNodeRow(favorite: saved)
+            try row.save(db)
+            return saved
+        }
+    }
+
+    @discardableResult
+    public func deleteFavorite(id: String) async throws -> Bool {
+        guard id != FavoriteNode.builtInDesktopNotificationID else {
+            throw FavoriteNodeError.builtInCannotBeDeleted
+        }
+        return try await dbQueue.write { db in
+            try FavoriteNodeRow.deleteOne(db, key: id)
         }
     }
 
@@ -396,6 +492,31 @@ public final class Store: Sendable {
     }
 
     // MARK: Deleting run records
+
+    /// Prunes only completed runs; approval checkpoints and active runs remain
+    /// available even when they are older than the retention window.
+    @discardableResult
+    public func pruneRunHistory(olderThan cutoff: Date) async throws -> Int {
+        try await dbQueue.write { db in
+            let expired = """
+                SELECT id FROM runs
+                WHERE status IN ('success', 'failed', 'cancelled', 'timeout')
+                  AND COALESCE(endedAt, startedAt) < ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM approvals
+                    WHERE approvals.runId = runs.id AND approvals.status = 'pending'
+                  )
+                """
+            try db.execute(
+                sql: "DELETE FROM nodeRuns WHERE runId IN (\(expired))",
+                arguments: [cutoff])
+            try db.execute(
+                sql: "DELETE FROM approvals WHERE status IN ('approved', 'rejected') AND runId IN (\(expired))",
+                arguments: [cutoff])
+            try db.execute(sql: "DELETE FROM runs WHERE id IN (\(expired))", arguments: [cutoff])
+            return db.changesCount
+        }
+    }
 
     @discardableResult
     public func deleteRun(id: String) async throws -> Bool {

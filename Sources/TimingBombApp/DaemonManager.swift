@@ -38,17 +38,18 @@ final class DaemonManager: ObservableObject {
     }
 
     private var logFileURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        if ProcessInfo.processInfo.environment["TIMINGBOMB_HOME"]?.isEmpty == false {
+            return TBPaths.homeDir.appendingPathComponent("logs/daemon.log")
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/TimingBomb/daemon.log")
     }
 
     func startLifecycle() {
-        FileHandle.standardError.write(Data("[tb-app] startLifecycle autoStart=\(autoStartWithApp)\n".utf8))
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             guard let self else { return }
             await self.refresh()
-            FileHandle.standardError.write(Data("[tb-app] first refresh -> \(self.state)\n".utf8))
             // Auto-start only when the user opens the app manually (not at login).
             if self.autoStartWithApp, self.state == .stopped {
                 self.startDaemon()
@@ -79,9 +80,7 @@ final class DaemonManager: ObservableObject {
     }
 
     func startDaemon() {
-        FileHandle.standardError.write(Data("[tb-app] startDaemon exe=\(daemonExecutable.path)\n".utf8))
         guard FileManager.default.fileExists(atPath: daemonExecutable.path) else {
-            FileHandle.standardError.write(Data("[tb-app] startDaemon: exe missing\n".utf8))
             lastError = L10n.t("daemon executable not found (must run from TimingBomb.app)")
             return
         }
@@ -89,30 +88,27 @@ final class DaemonManager: ObservableObject {
         process.executableURL = daemonExecutable
         // The daemon's data directory (also its working directory) must exist first,
         // otherwise spawn fails immediately.
-        try? FileManager.default.createDirectory(
-            at: TBPaths.homeDir, withIntermediateDirectories: true)
         process.currentDirectoryURL = TBPaths.homeDir
 
         do {
-            try FileManager.default.createDirectory(
-                at: logFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if !FileManager.default.fileExists(atPath: logFileURL.path) {
-                FileManager.default.createFile(atPath: logFileURL.path, contents: nil)
+            try TBPaths.ensureHome()
+            try PrivateFiles.ensureDirectory(logFileURL.deletingLastPathComponent())
+            let handle = try PrivateFiles.appendHandle(at: logFileURL)
+            defer { try? handle.close() }
+            if try handle.seekToEnd() > 1_048_576 {
+                try handle.truncate(atOffset: 0)
             }
-            if let handle = FileHandle(forWritingAtPath: logFileURL.path) {
-                handle.seekToEndOfFile()
-                process.standardOutput = handle
-                process.standardError = handle
-            }
+            process.standardOutput = handle
+            process.standardError = handle
             try process.run()
-            try? String(process.processIdentifier).write(
-                to: pidFileURL, atomically: true, encoding: .utf8)
+            try PrivateFiles.write(Data(String(process.processIdentifier).utf8), to: pidFileURL)
             lastError = nil
             Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 700_000_000)
                 await self?.refresh()
             }
         } catch {
+            if process.isRunning { process.terminate() }
             lastError = L10n.t("daemon failed to start: {detail}", ["detail": error.localizedDescription])
         }
     }

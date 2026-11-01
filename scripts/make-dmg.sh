@@ -4,8 +4,33 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${TB_VERSION:-0.1.0}"
 ROOT="$(pwd)"
+PYTHON_BIN="${TB_PYTHON:-}"
+PYTHON_CHECK='import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'
+if [ -n "$PYTHON_BIN" ]; then
+    if ! "$PYTHON_BIN" -I -c "$PYTHON_CHECK" >/dev/null 2>&1; then
+        echo 'TB_PYTHON must point to a working Python 3.10 or newer interpreter' >&2
+        exit 1
+    fi
+else
+    for candidate in python3 python3.15 python3.14 python3.13 python3.12 python3.11 python3.10; do
+        if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -I -c "$PYTHON_CHECK" >/dev/null 2>&1; then
+            PYTHON_BIN="$(command -v "$candidate")"
+            break
+        fi
+    done
+    if [ -z "$PYTHON_BIN" ]; then
+        echo 'Building the DMG requires Python 3.10 or newer. Install it and set TB_PYTHON to its executable path.' >&2
+        exit 1
+    fi
+fi
+
+PACKAGE_VERSION="$("$PYTHON_BIN" -I -c 'import json; print(json.load(open("Skills/timingbomb/package.json"))["version"])')"
+VERSION="${TB_VERSION:-$PACKAGE_VERSION}"
+if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
+    echo "DMG and npm package versions must match" >&2
+    exit 1
+fi
 DMG="$ROOT/dist/TimingBomb-${VERSION}-arm64.dmg"
 APPS_DIR="${TB_APPLICATIONS_DIR:-/Applications}"
 DMG_VENV="$ROOT/.build/dmg-venv"
@@ -14,8 +39,11 @@ REQUIREMENTS="$ROOT/scripts/dmg-requirements.txt"
 
 # Write Finder metadata directly, so packaging also works without a logged-in
 # Finder session or Apple Events permission. Keep Python dependencies local.
-if [ ! -x "$DMG_PYTHON" ]; then
-    python3 -m venv "$DMG_VENV"
+if ! "$DMG_PYTHON" -I -c "$PYTHON_CHECK" >/dev/null 2>&1; then
+    # A venv created by Apple's older system Python cannot install these pins.
+    # Recreate only this generated tool environment, never the caller's Python.
+    rm -rf "$DMG_VENV"
+    "$PYTHON_BIN" -I -m venv "$DMG_VENV"
 fi
 if ! "$DMG_PYTHON" -I - "$REQUIREMENTS" <<'PY'
 import importlib.metadata

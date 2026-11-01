@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var showAbout = false
     @State private var token: String?
     @State private var tokenCopied = false
+    @State private var tokenVisible = false
     @State private var allowPatterns: [String] = []
     @State private var newPattern = ""
     @State private var allowError: String?
@@ -34,6 +35,12 @@ struct SettingsView: View {
             }
             .formStyle(.grouped)
             .padding()
+        }
+        .onDisappear { tokenVisible = false }
+        .task(id: tokenVisible) {
+            guard tokenVisible else { return }
+            try? await Task.sleep(for: .seconds(30))
+            if !Task.isCancelled { tokenVisible = false }
         }
         .onAppear {
             token = try? String(contentsOf: TBPaths.tokenFileURL, encoding: .utf8)
@@ -66,11 +73,13 @@ struct SettingsView: View {
                 }
             Text(
                 L10n.t(
-                    "When off, new runs are not written to history (live results remain visible during the run); existing history is kept and can be deleted on the Runs page"
+                    "Finished runs are kept for 30 days with recognized secrets filtered. When off, results stay in memory; pending approvals retain private recovery data until resolved."
                 )
             )
             .font(.caption)
             .foregroundStyle(.secondary)
+            Text(L10n.t("Filtering cannot detect every secret. Avoid putting credentials in scripts, favorites or log messages."))
+                .font(.caption).foregroundStyle(.secondary)
             if let loggingError {
                 Text(loggingError).font(.caption).foregroundStyle(.red)
             }
@@ -256,6 +265,8 @@ struct SettingsView: View {
             if let lanError {
                 Text(lanError).font(.caption).foregroundStyle(.red)
             }
+            Text(L10n.t("LAN access uses unencrypted HTTP. Use a trusted VPN, an SSH tunnel or an HTTPS proxy for remote access."))
+                .font(.caption).foregroundStyle(.secondary)
             LabeledContent(L10n.t("Local API")) {
                 // verbatim: plain Text interpolation formats numbers with the
                 // locale (47632 → "47,632"), which corrupts the URL display.
@@ -277,16 +288,29 @@ struct SettingsView: View {
             }
             LabeledContent("API Token") {
                 HStack(spacing: 4) {
-                    Text(token ?? L10n.t("(generated after the service starts)"))
+                    Text(token.map { tokenVisible ? $0 : "••••••••••••••••" }
+                        ?? L10n.t("(generated after the service starts)"))
                         .font(.system(.caption, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
                     if token != nil {
+                        Button(tokenVisible ? L10n.t("Hide token") : L10n.t("Show token")) {
+                            tokenVisible.toggle()
+                        }
                         Button(tokenCopied ? L10n.t("Copied") : L10n.t("Copy")) {
                             if let token {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(token, forType: .string)
+                                let pasteboard = NSPasteboard.general
+                                pasteboard.clearContents()
+                                pasteboard.setString(token, forType: .string)
+                                pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+                                pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
+                                let copiedChange = pasteboard.changeCount
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                                    if pasteboard.changeCount == copiedChange {
+                                        pasteboard.clearContents()
+                                    }
+                                }
                                 tokenCopied = true
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                                     tokenCopied = false
@@ -296,6 +320,8 @@ struct SettingsView: View {
                     }
                 }
             }
+            Text(L10n.t("Copied tokens are cleared from the clipboard after 30 seconds if the clipboard has not changed."))
+                .font(.caption).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 4) {
                 Text(L10n.t("External trigger example"))
                     .font(.caption)

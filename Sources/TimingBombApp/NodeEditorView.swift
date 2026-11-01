@@ -7,12 +7,27 @@ struct NodeEditorView: View {
     @State private var node: FlowNode
     private let onSave: (FlowNode) -> Void
     private let onDismiss: () -> Void
+    private let sourceFlowName: String?
+    private let allowsFavorite: Bool
+    private let saving: Bool
+    private let saveError: String?
 
     @State private var paramsText: String = "{}"
     @State private var errorText: String?
+    @State private var favoriteID = UUID().uuidString.lowercased()
+    @State private var favoriting = false
+    @State private var favoriteSaved = false
 
-    init(node: FlowNode, onSave: @escaping (FlowNode) -> Void, onDismiss: @escaping () -> Void) {
+    init(
+        node: FlowNode, sourceFlowName: String? = nil, allowsFavorite: Bool = true,
+        saving: Bool = false, saveError: String? = nil,
+        onSave: @escaping (FlowNode) -> Void, onDismiss: @escaping () -> Void
+    ) {
         _node = State(initialValue: node)
+        self.sourceFlowName = sourceFlowName
+        self.allowsFavorite = allowsFavorite
+        self.saving = saving
+        self.saveError = saveError
         self.onSave = onSave
         self.onDismiss = onDismiss
         if let params = node.params {
@@ -54,7 +69,8 @@ struct NodeEditorView: View {
                     }
                 }
 
-                typeSection
+                    documentationSection
+                    typeSection
 
                     Section(L10n.t("Execution Policy")) {
                         LabeledContent(L10n.t("Timeout (ms)")) {
@@ -81,12 +97,22 @@ struct NodeEditorView: View {
                 }
                 .formStyle(.grouped)
                 .padding(.vertical, 4)
+                .disabled(favoriting || saving)
             }
 
-            if let errorText {
+            if let errorText = errorText ?? saveError {
                 Text(errorText)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if favoriteSaved {
+                Label(L10n.t("Saved to Favorite Nodes"), systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -96,6 +122,9 @@ struct NodeEditorView: View {
             footer
         }
         .frame(minWidth: 500, idealWidth: 540, minHeight: 540, idealHeight: 620)
+        .interactiveDismissDisabled(favoriting || saving)
+        .onChange(of: node) { _, _ in favoriteSaved = false }
+        .onChange(of: paramsText) { _, _ in favoriteSaved = false }
     }
 
     private var header: some View {
@@ -109,11 +138,72 @@ struct NodeEditorView: View {
 
     private var footer: some View {
         HStack {
+            if allowsFavorite {
+                Button {
+                    Task { await favorite() }
+                } label: {
+                    Label(
+                        L10n.t("Favorite Node"),
+                        systemImage: favoriteSaved ? "star.fill" : "star")
+                }
+                .disabled(favoriting || saving || favoriteSaved)
+                if favoriting { ProgressView().controlSize(.small) }
+            }
             Spacer()
-            Button(L10n.t("Cancel"), action: onDismiss).keyboardShortcut(.cancelAction)
-            Button(L10n.t("Save Node"), action: save).keyboardShortcut(.defaultAction)
+            Button(L10n.t("Cancel"), action: onDismiss)
+                .keyboardShortcut(.cancelAction)
+                .disabled(favoriting || saving)
+            Button(L10n.t("Save Node"), action: save)
+                .keyboardShortcut(.defaultAction)
+                .disabled(favoriting || saving)
+            if saving { ProgressView().controlSize(.small) }
         }
         .padding(10)
+    }
+
+    private var documentationSection: some View {
+        Section(L10n.t("Input and Output")) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L10n.t("Input description")).font(.subheadline.weight(.medium))
+                documentationEditor(
+                    text: optionalText($node.inputDescription),
+                    placeholder: NodeDocumentation.input(for: node),
+                    label: L10n.t("Input description"))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L10n.t("Output description")).font(.subheadline.weight(.medium))
+                documentationEditor(
+                    text: optionalText($node.outputDescription),
+                    placeholder: NodeDocumentation.output(for: node),
+                    label: L10n.t("Output description"))
+            }
+            Text(L10n.t("Describe parameter names, types and examples. These notes are saved with the node and its favorites."))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func documentationEditor(
+        text: Binding<String>, placeholder: String, label: String
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: text)
+                .font(.callout)
+                .scrollContentBackground(.hidden)
+                .padding(4)
+                .background(.quinary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                .frame(minHeight: 100)
+                .accessibilityLabel(label)
+            if text.wrappedValue.isEmpty {
+                Text(placeholder)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 11)
+                    .padding(.horizontal, 9)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 
     @ViewBuilder
@@ -316,21 +406,56 @@ struct NodeEditorView: View {
 
     private func save() {
         errorText = nil
+        guard let cleaned = preparedNode() else { return }
+        onSave(cleaned)
+    }
+
+    private func favorite() async {
+        errorText = nil
+        guard let cleaned = preparedNode() else { return }
+        favoriting = true
+        defer { favoriting = false }
+        do {
+            let favorite = FavoriteNode(
+                id: favoriteID, name: cleaned.name ?? cleaned.id,
+                node: cleaned, sourceFlowName: sourceFlowName)
+            _ = try await TBAPIClient.saveFavorite(favorite)
+            favoriteSaved = true
+        } catch let error as APIClientError {
+            errorText = error.rendered
+            if !error.issues.isEmpty {
+                errorText = (errorText ?? "") + "\n"
+                    + error.issues.map { "\($0.path): \($0.localizedMessage)" }.joined(separator: "\n")
+            }
+        } catch {
+            errorText = String(describing: error)
+        }
+    }
+
+    /// Both save paths use the current editor contents, including uncommitted action JSON.
+    private func preparedNode() -> FlowNode? {
+        var cleaned = node
         if node.type == .action {
             guard let data = paramsText.data(using: .utf8),
                 let params = try? TBJSON.decodeData(JSONValue.self, from: data)
             else {
                 errorText = L10n.t("action params are not valid JSON")
-                return
+                return nil
             }
-            node.params = params
+            cleaned.params = params
         }
-        var cleaned = node
+        cleaned.name = cleaned.name?.trimmingCharacters(in: .whitespacesAndNewlines)
         if cleaned.name?.isEmpty == true { cleaned.name = nil }
+        if cleaned.inputDescription?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            cleaned.inputDescription = nil
+        }
+        if cleaned.outputDescription?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            cleaned.outputDescription = nil
+        }
         if cleaned.skipIf?.isEmpty == true { cleaned.skipIf = nil }
         if cleaned.over?.isEmpty == true { cleaned.over = nil }
         if cleaned.condition?.isEmpty == true { cleaned.condition = nil }
         if cleaned.code?.isEmpty == true { cleaned.code = nil }
-        onSave(cleaned)
+        return cleaned
     }
 }

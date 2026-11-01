@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppearanceMode.apply(AppearanceMode.stored)
+        AppNativeNotificationPresenter.shared.start()
         DaemonManager.shared.startLifecycle()
         StatusBarManager.shared.install()
 
@@ -18,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
+
 }
 
 @main
@@ -39,6 +41,7 @@ struct TimingBombApp: App {
 struct MainSidebarView: View {
     enum Page: String, Hashable, CaseIterable, Identifiable {
         case flows
+        case favorites
         case approvals
         case runs
         case settings
@@ -48,6 +51,7 @@ struct MainSidebarView: View {
         var label: String {
             switch self {
             case .flows: return L10n.t("Flows")
+            case .favorites: return L10n.t("Favorite Nodes")
             case .approvals: return L10n.t("Approvals")
             case .runs: return L10n.t("Runs")
             case .settings: return L10n.t("Settings")
@@ -57,6 +61,7 @@ struct MainSidebarView: View {
         var icon: String {
             switch self {
             case .flows: return "square.3.layers.3d.top.filled"
+            case .favorites: return "star"
             case .approvals: return "checkmark.seal"
             case .runs: return "doc.text.magnifyingglass"
             case .settings: return "gearshape"
@@ -95,6 +100,7 @@ struct MainSidebarView: View {
         } detail: {
             switch page {
             case .flows: FlowsView()
+            case .favorites: FavoriteNodesView()
             case .approvals: ApprovalsView()
             case .runs: RunsView()
             case .settings: SettingsView()

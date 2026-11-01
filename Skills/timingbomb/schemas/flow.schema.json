@@ -9,6 +9,7 @@
     "name": { "type": "string", "minLength": 1 },
     "version": { "type": "integer", "minimum": 1 },
     "description": { "type": "string" },
+    "notifyOnFailure": { "type": "boolean" },
     "trigger": { "$ref": "#/definitions/trigger" },
     "nodes": { "type": "array", "items": { "$ref": "#/definitions/node" } }
   },
@@ -17,7 +18,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "type": { "enum": ["manual", "schedule", "webhook"] },
+        "type": { "enum": ["manual", "schedule", "webhook", "fileWatch"] },
+        "path": { "type": "string" },
         "cron": { "type": "string" },
         "timezone": { "type": "string" },
         "misfire": { "enum": ["skip", "fireOnce"] }
@@ -28,8 +30,10 @@
       "required": ["id", "type"],
       "properties": {
         "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
-        "type": { "enum": ["code", "if", "loop", "action"] },
+        "type": { "enum": ["code", "if", "loop", "action", "approval"] },
         "name": { "type": "string" },
+        "inputDescription": { "type": "string", "description": "Human-readable required inputs, types and examples; documentation only." },
+        "outputDescription": { "type": "string", "description": "Human-readable output shape, fields and examples; documentation only." },
         "timeoutMs": { "type": "integer", "exclusiveMinimum": 0 },
         "onError": { "enum": ["abort", "continue"] },
         "retries": { "type": "integer", "minimum": 0 },
@@ -42,6 +46,7 @@
           "allOf": [{ "$ref": "#/definitions/nodeBase" }],
           "properties": {
             "type": { "const": "code" },
+            "language": { "enum": ["js", "javascript", "python", "shell"] },
             "code": { "type": "string", "minLength": 1 }
           },
           "required": ["code"]
@@ -73,10 +78,17 @@
           "allOf": [{ "$ref": "#/definitions/nodeBase" }],
           "properties": {
             "type": { "const": "action" },
-            "action": { "enum": ["delay", "http"] },
+            "action": { "enum": ["delay", "http", "shell", "appleScript", "notify", "openApp", "clipboard", "fileRead", "fileWrite"] },
             "params": { "type": ["object", "array", "string", "number", "boolean", "null"] }
           },
           "required": ["action"]
+        },
+        {
+          "allOf": [{ "$ref": "#/definitions/nodeBase" }],
+          "properties": {
+            "type": { "const": "approval" },
+            "message": { "type": "string" }
+          }
         }
       ]
     }

@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-const version = "0.1.4"
+const version = "0.1.5"
 
 const usage = `tb — TimingBomb CLI client (v%s)
 
@@ -21,6 +21,11 @@ Commands:
   flow create --file <f>       Create/update a flow (also reads stdin)
   flow validate --file <f>     Validate a flow without saving
   flow rm <id>                 Delete a flow
+  node list [--json]           List reusable favorite nodes
+  node show <id> [--json]      Show a favorite node (--node-only for flow JSON)
+  node save --flow <id> --node <id>  Save a flow node as a favorite
+  node save --file <node.json>  Save a standalone node (--name ..., --json)
+  node rm <id>                 Delete a user-created favorite (built-ins are protected)
   run <id> [--input <json>]    Trigger a run (--wait, --dry-run, --json)
   runs list [--flowId <id>]    Run history (--limit N, --json)
   runs show <runId> [--json]   Run timeline / logs / final context
@@ -39,6 +44,7 @@ Environment:
   TIMINGBOMB_TOKEN             Local token override (otherwise read from the token file).
   TIMINGBOMB_HOME              Local data dir override (token file location).
   TIMINGBOMB_PORT              Local daemon port override (default 47632).
+  TIMINGBOMB_ALLOW_INSECURE_HTTP  Set to 1 to allow remote plain HTTP on a trusted network.
 
 The daemon itself runs inside the TimingBomb Mac app (or from the Swift
 sources). This CLI is a pure API client and works from any machine.
@@ -61,6 +67,8 @@ func main() {
 		cmdAuth(args[1:])
 	case "flow":
 		cmdFlow(args[1:])
+	case "node":
+		cmdNode(args[1:])
 	case "run":
 		cmdRun(args[1:])
 	case "runs":

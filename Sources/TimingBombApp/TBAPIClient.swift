@@ -1,5 +1,6 @@
 import Foundation
 import TimingBombCore
+import TimingBombDaemon
 import TimingBombL10n
 
 // MARK: - DTOs
@@ -14,6 +15,14 @@ struct FlowItemDTO: Decodable, Identifiable {
 
 struct FlowListDTO: Decodable {
     let flows: [FlowItemDTO]
+}
+
+struct FavoriteListDTO: Decodable {
+    let favorites: [FavoriteNode]
+}
+
+struct FavoriteItemDTO: Decodable {
+    let favorite: FavoriteNode
 }
 
 struct RunListDTO: Decodable {
@@ -61,6 +70,13 @@ struct APIClientError: Error {
 
 /// Client that talks to the local daemon (127.0.0.1); called directly by views.
 enum TBAPIClient {
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: configuration)
+    }()
+
     static var baseURL: URL {
         URL(string: "http://127.0.0.1:\(TBPaths.defaultPort)")!
     }
@@ -87,7 +103,7 @@ enum TBAPIClient {
             request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
         }
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
                 throw decodeError(data, status: status)
@@ -128,6 +144,11 @@ enum TBAPIClient {
 
     // MARK: Endpoints
 
+    static func takeNativeNotifications() async throws -> [NativeNotificationMessage] {
+        let data = try await request("GET", "notifications/pending")
+        return try TBJSON.decodeData(NativeNotificationListResponse.self, from: data).notifications
+    }
+
     static func health() async throws -> String? {
         let data = try await request("GET", "healthz")
         let value = try? TBJSON.decodeData(JSONValue.self, from: data)
@@ -149,6 +170,21 @@ enum TBAPIClient {
 
     static func deleteFlow(id: String) async throws {
         _ = try await request("DELETE", "flows/\(id)")
+    }
+
+    static func favorites() async throws -> [FavoriteNode] {
+        let data = try await request("GET", "favorites")
+        return try TBJSON.decodeData(FavoriteListDTO.self, from: data).favorites
+    }
+
+    @discardableResult
+    static func saveFavorite(_ favorite: FavoriteNode) async throws -> FavoriteNode {
+        let data = try await request("POST", "favorites", body: try TBJSON.encodeData(favorite))
+        return try TBJSON.decodeData(FavoriteItemDTO.self, from: data).favorite
+    }
+
+    static func deleteFavorite(id: String) async throws {
+        _ = try await request("DELETE", "favorites/\(id)")
     }
 
     static func startRun(

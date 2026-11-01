@@ -1,104 +1,182 @@
-# Release packaging: pushing a tag like `v0.1.1` builds the arm64 DMG on a
-# macOS runner and attaches it to a GitHub Release for that tag.
-#
-# Usage:
-#   git tag v0.1.1 && git push origin v0.1.1
-#
-# Free-tier note: public repos run Actions for free; private repos get
-# 2000 min/month, billed at 10x on macOS runners (≈200 macOS minutes) —
-# one packaging run takes ~5 minutes.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  dmg:
-    name: Build & release DMG (arm64)
+  macos:
+    name: Verify App and build DMG (arm64)
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-
-      - name: Build & package DMG
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+      - name: Validate source and release version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "Packaging TimingBomb $VERSION"
-          TB_VERSION="$VERSION" ./scripts/make-dmg.sh
+          python3 scripts/release-scan.py --source
+          ./scripts/check-l10n.sh
+          git diff --check
+          VERSION="$(python3 -c 'import json; print(json.load(open("Skills/timingbomb/package.json"))["version"])')"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+            echo 'Tag, app and npm versions must match' >&2
+            exit 1
+          fi
+          test "$(uname -m)" = arm64
+      - name: Build release App and DMG
+        run: ./scripts/make-dmg.sh
+      - name: Verify isolated API and CLI behavior
+        run: |
+          ./scripts/build-cli.sh
+          python3 scripts/release-smoke.py \
+            --daemon dist/app-staging/TimingBomb.app/Contents/MacOS/timingbombd \
+            --cli Skills/timingbomb/assets/tb-darwin-arm64
+      - name: Scan final DMG and App contents
+        run: |
+          VERSION="$(python3 -c 'import json; print(json.load(open("Skills/timingbomb/package.json"))["version"])')"
+          python3 scripts/release-scan.py --dmg "dist/TimingBomb-${VERSION}-arm64.dmg"
+          (cd dist && shasum -a 256 "TimingBomb-${VERSION}-arm64.dmg" > DMG-SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-dmg
+          path: |
+            dist/TimingBomb-*-arm64.dmg
+            dist/DMG-SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Attach DMG to the GitHub Release
+  npm:
+    name: Verify CLI and build npm package (six platforms)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate source, versions and CLI
+        run: |
+          python3 scripts/release-scan.py --source
+          git diff --check
+          (cd cli && go vet ./...)
+          VERSION="$(node -p "require('./Skills/timingbomb/package.json').version")"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+            echo 'Tag, app and npm versions must match' >&2
+            exit 1
+          fi
+      - name: Build all CLI binaries and package
+        run: |
+          ./scripts/build-cli.sh --all
+          mkdir -p dist/npm
+          npm pack ./Skills/timingbomb --ignore-scripts --pack-destination dist/npm
+      - name: Scan final npm package and exercise launcher
+        run: |
+          VERSION="$(node -p "require('./Skills/timingbomb/package.json').version")"
+          python3 scripts/release-scan.py --npm "dist/npm/timingbomb-${VERSION}.tgz"
+          PACKAGE_DIR="$(mktemp -d)"
+          trap 'rm -rf "$PACKAGE_DIR"' EXIT
+          tar -xzf "dist/npm/timingbomb-${VERSION}.tgz" -C "$PACKAGE_DIR"
+          test "$(node "$PACKAGE_DIR/package/bin/tb.js" version)" = "tb $VERSION"
+          node "$PACKAGE_DIR/package/bin/postinstall.js"
+          test "$(find "$PACKAGE_DIR/package/assets" -type f | wc -l | tr -d ' ')" = 1
+          (cd dist/npm && sha256sum "timingbomb-${VERSION}.tgz" > NPM-SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-npm
+          path: |
+            dist/npm/*.tgz
+            dist/npm/NPM-SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish verified DMG and npm package
+    needs: [macos, npm]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-dmg
+          path: release-assets
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-npm
+          path: release-assets
+      - name: Verify artifact checksums
+        working-directory: release-assets
+        run: |
+          sha256sum -c DMG-SHA256SUMS
+          sha256sum -c NPM-SHA256SUMS
+      - name: Publish exact verified npm tarball
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo 'NPM_TOKEN is not configured' >&2
+            exit 1
+          fi
+          VERSION="$(node -p "require('./Skills/timingbomb/package.json').version")"
+          PACKAGE="$PWD/release-assets/timingbomb-${VERSION}.tgz"
+          AUTH_DIR="$(mktemp -d)"
+          trap 'rm -rf "$AUTH_DIR"' EXIT
+          umask 077
+          export NPM_CONFIG_USERCONFIG="$AUTH_DIR/npmrc"
+          export NPM_CONFIG_CACHE="$AUTH_DIR/cache"
+          printf '%s\n' 'registry=https://registry.npmjs.org/' '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' > "$NPM_CONFIG_USERCONFIG"
+          if ! npm whoami > "$AUTH_DIR/auth-check" 2>&1; then
+            echo 'npm authentication failed; credential diagnostics were suppressed' >&2
+            exit 1
+          fi
+          LOCAL_INTEGRITY="$(node -e 'const fs=require("fs"),c=require("crypto"); process.stdout.write("sha512-"+c.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64"))' "$PACKAGE")"
+          if npm view "timingbomb@$VERSION" dist.integrity --json > "$AUTH_DIR/integrity.json" 2> "$AUTH_DIR/view-error"; then
+            REMOTE_INTEGRITY="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")))' "$AUTH_DIR/integrity.json")"
+            if [ "$REMOTE_INTEGRITY" != "$LOCAL_INTEGRITY" ]; then
+              echo 'This npm version already exists with different contents; choose a new version' >&2
+              exit 1
+            fi
+            echo 'Exact verified npm package is already published'
+          else
+            if ! npm publish "$PACKAGE" --access public --ignore-scripts > "$AUTH_DIR/publish-output" 2>&1; then
+              echo 'npm publish failed; credential diagnostics were suppressed' >&2
+              exit 1
+            fi
+            echo "Published timingbomb@$VERSION"
+          fi
+      - name: Attach verified files to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          DMG="dist/TimingBomb-${VERSION}-arm64.dmg"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$GITHUB_REF_NAME" "$DMG" \
-              --title "TimingBomb $VERSION" --generate-notes --repo "$GITHUB_REPOSITORY"
+            gh release create "$GITHUB_REF_NAME" release-assets/* \
+              --verify-tag --title "TimingBomb $VERSION" --generate-notes --repo "$GITHUB_REPOSITORY"
           fi
-
-  # Skill package → npm: runs on the same tag push when Skills/timingbomb
-  # changed since the previous tag. Requires the NPM_TOKEN repo secret
-  # (npmjs.com access token with publish rights). Bump "version" in
-  # Skills/timingbomb/package.json before tagging; an already-published
-  # version is skipped gracefully.
-  skill-npm:
-    name: Publish skill package to npm
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Did the skill package change?
-        id: skill
-        run: |
-          PREV="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
-          if [ -n "$PREV" ] && ! git diff --name-only "$PREV" "$GITHUB_REF_NAME" -- Skills/timingbomb | grep -q .; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "skill unchanged since $PREV — skipping npm publish"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - uses: actions/setup-go@v5
-        if: steps.skill.outputs.changed == 'true'
-        with:
-          go-version-file: cli/go.mod
-
-      - name: Build CLI binaries (all platforms)
-        if: steps.skill.outputs.changed == 'true'
-        run: ./scripts/build-cli.sh --all
-
-      - name: Publish to npm
-        if: steps.skill.outputs.changed == 'true'
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          cd Skills/timingbomb
-          VERSION="$(node -p "require('./package.json').version")"
-          if npm view "timingbomb@$VERSION" version --registry https://registry.npmjs.org/ >/dev/null 2>&1; then
-            echo "timingbomb@$VERSION already on npm — skipping"
-            exit 0
-          fi
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "::error::NPM_TOKEN secret is not configured — add an npmjs.com publish token to the repo secrets"
-            exit 1
-          fi
-          # Permission check first: a valid token must resolve to an account.
-          if ! WHOAMI="$(npm whoami --registry https://registry.npmjs.org/ \
-              "--//registry.npmjs.org/:_authToken=$NPM_TOKEN" 2>&1)"; then
-            echo "::error::NPM_TOKEN is invalid or expired: $WHOAMI"
-            exit 1
-          fi
-          echo "npm token OK — publishing as $WHOAMI"
-          npm publish --access public \
-            --registry https://registry.npmjs.org/ \
-            "--//registry.npmjs.org/:_authToken=$NPM_TOKEN"

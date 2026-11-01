@@ -200,6 +200,7 @@ struct FlowDetailView: View {
     @State private var saveIssues: [ValidationIssue] = []
     @State private var editingNode: FlowNode?
     @State private var showRunSheet = false
+    @State private var showFavoritePicker = false
     @State private var runFeedback: String?
 
     init(item: FlowItemDTO, onListChanged: @escaping () -> Void) {
@@ -237,6 +238,7 @@ struct FlowDetailView: View {
         .sheet(item: $editingNode) { node in
             NodeEditorView(
                 node: node,
+                sourceFlowName: draft.name,
                 onSave: { updated in
                     if FlowTree.replace(in: &draft.nodes, id: updated.id, with: updated) {
                         dirty = true
@@ -250,6 +252,12 @@ struct FlowDetailView: View {
             RunFlowSheet(flowId: draft.id) { message in
                 runFeedback = message
                 showRunSheet = false
+            }
+        }
+        .sheet(isPresented: $showFavoritePicker) {
+            FavoritePickerSheet(nodes: draft.nodes) { node, destination in
+                guard NodePlacement.insert(node, at: destination, into: &draft.nodes) else { return }
+                dirty = true
             }
         }
         .alert(L10n.t("Triggered"), isPresented: Binding(
@@ -291,6 +299,12 @@ struct FlowDetailView: View {
             }
             .disabled(!dirty || saving)
             Button(L10n.t("Run now")) { showRunSheet = true }
+            Button {
+                showFavoritePicker = true
+            } label: {
+                Label(L10n.t("Add from favorites"), systemImage: "star")
+            }
+            .help(L10n.t("Reuse a saved node in this flow"))
         }
         .padding(12)
     }
@@ -451,6 +465,8 @@ struct NewFlowSheet: View {
     @State private var errorText: String?
     @Environment(\.dismiss) private var dismiss
     @State private var creating = false
+    @State private var favorites: [FavoriteNode] = []
+    @State private var selectedFavoriteID: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -464,7 +480,19 @@ struct NewFlowSheet: View {
                     )
                     .font(.system(.body, design: .monospaced))
                     TextField(L10n.t("Flow name"), text: $flowName)
-                    Text(L10n.t("Creates a flow with one skeleton code node. After saving, click the node to edit its JS."))
+                    Section(L10n.t("Reusable node")) {
+                        Picker(L10n.t("Start with"), selection: $selectedFavoriteID) {
+                            Text(L10n.t("Skeleton code node")).tag(String?.none)
+                            ForEach(favorites) { favorite in
+                                Text(favorite.name).tag(String?.some(favorite.id))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        Text(L10n.t("Choose a favorite when this flow can reuse an existing configured step. You can add more from the flow editor."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(L10n.t("A new flow starts with the selected reusable node, or one skeleton code node. You can edit it after saving."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -486,17 +514,22 @@ struct NewFlowSheet: View {
             .padding(10)
         }
         .frame(minWidth: 400, idealWidth: 440, minHeight: 240, idealHeight: 280)
+        .task {
+            favorites = (try? await TBAPIClient.favorites()) ?? []
+        }
     }
 
     private func create() async {
         errorText = nil
         creating = true
         defer { creating = false }
-        let skeleton = FlowDefinition(
-            id: flowId.trimmingCharacters(in: .whitespaces),
-            name: flowName,
-            trigger: TriggerConfig(type: .manual),
-            nodes: [
+        let initialNodes: [FlowNode]
+        if let selectedFavoriteID,
+            let favorite = favorites.first(where: { $0.id == selectedFavoriteID })
+        {
+            initialNodes = [NodeReuse.copy(favorite.node, avoiding: [])]
+        } else {
+            initialNodes = [
                 FlowNode(
                     id: "step1", type: .code, name: L10n.t("Step 1"),
                     code: """
@@ -506,7 +539,13 @@ struct NewFlowSheet: View {
                       return { ok: true };
                     }
                     """)
-            ])
+            ]
+        }
+        let skeleton = FlowDefinition(
+            id: flowId.trimmingCharacters(in: .whitespaces),
+            name: flowName,
+            trigger: TriggerConfig(type: .manual),
+            nodes: initialNodes)
         do {
             _ = try await TBAPIClient.saveFlow(skeleton)
             dismiss()

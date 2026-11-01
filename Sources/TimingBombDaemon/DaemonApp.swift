@@ -39,6 +39,14 @@ struct FlowItemResponse: Codable {
     let updatedAt: Date
 }
 
+struct FavoriteListResponse: Codable {
+    let favorites: [FavoriteNode]
+}
+
+struct FavoriteItemResponse: Codable {
+    let favorite: FavoriteNode
+}
+
 struct OKResponse: Codable {
     let ok: Bool
 
@@ -91,16 +99,18 @@ public final class DaemonApp: @unchecked Sendable {
         }
         let resolvedToken: String
         if let token, !token.isEmpty {
-            writeTokenFile(token)
+            try writeTokenFile(token)
             resolvedToken = token
         } else {
             let generated = generateToken()
             try await store.setSetting("apiToken", generated)
-            writeTokenFile(generated)
+            try writeTokenFile(generated)
             resolvedToken = generated
         }
 
-        let notifier = OsascriptNotifier()
+        try await store.pruneRunHistory(olderThan: Date().addingTimeInterval(-RunService.historyRetention))
+
+        let notifier = NativeNotifier()
         let allowlistProvider: @Sendable () async -> Allowlist = { await store.allowlist() }
         let actions = BuiltinActions(
             allowlistProvider: allowlistProvider,
@@ -113,12 +123,13 @@ public final class DaemonApp: @unchecked Sendable {
                 let record = ApprovalRecord(
                     id: UUID().uuidString.lowercased(),
                     runId: request.runId, flowId: request.flowId, flowName: request.flowName,
-                    nodeId: request.nodeId, nodeName: request.nodeName, message: request.message)
+                    nodeId: request.nodeId, nodeName: request.nodeName.map(SensitiveData.redact),
+                    message: request.message.map(SensitiveData.redact))
                 try await store.insertApproval(record)
                 await notifier.notify(
                     title: L10n.t(
-                        "TimingBomb · {name} is waiting for approval", ["name": request.flowName]),
-                    body: request.message ?? L10n.t("Open the Approvals page to handle it"))
+                        "TimingBomb is waiting for approval"),
+                    body: L10n.t("Open the Approvals page to handle it"))
                 return record.id
             })
         let runs = RunService(store: store, engine: engine, notifier: notifier)
@@ -227,6 +238,10 @@ public final class DaemonApp: @unchecked Sendable {
             .json(HealthResponse(status: "ok", version: Self.version))
         }
 
+        router.add("GET", "notifications/pending") { _ in
+            .json(NativeNotificationListResponse(notifications: await NativeNotifier.takePending()))
+        }
+
         router.add("GET", "flows") { [weak self] _ in
             guard let self else { return .error(500, code: "daemonUnavailable", template: "daemon unavailable") }
             return await self.responding {
@@ -272,6 +287,51 @@ public final class DaemonApp: @unchecked Sendable {
                     return .error(404, code: "flowNotFound", template: "flow not found")
                 }
                 await self.fileWatch.reload()
+                return .json(OKResponse())
+            }
+        }
+
+        router.add("GET", "favorites") { [weak self] _ in
+            guard let self else { return .error(500, code: "daemonUnavailable", template: "daemon unavailable") }
+            return await self.responding {
+                .json(FavoriteListResponse(favorites: try await self.store.listFavorites()))
+            }
+        }
+
+        router.add("POST", "favorites") { [weak self] request in
+            guard let self else { return .error(500, code: "daemonUnavailable", template: "daemon unavailable") }
+            return await self.responding {
+                var favorite = try Self.decodeBody(FavoriteNode.self, request)
+                favorite.name = favorite.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                let definition = FlowDefinition(
+                    id: favorite.id, name: favorite.name, nodes: [favorite.node])
+                var issues = FlowValidator.validate(
+                    definition, knownActions: self.engine.actions.knownActions)
+                if favorite.id.isEmpty || favorite.id.range(
+                    of: FlowValidator.idPattern, options: .regularExpression) == nil
+                {
+                    issues.append(.init(
+                        level: .error, path: "id",
+                        template: "favorite id must match {pattern} (got '{actual}')",
+                        params: ["pattern": FlowValidator.idPattern, "actual": favorite.id]))
+                }
+                let errors = issues.filter { $0.level == .error }
+                if !errors.isEmpty {
+                    return .error(
+                        400, code: "favoriteValidationFailed",
+                        template: "favorite validation failed ({count} error(s))",
+                        params: ["count": String(errors.count)], issues: issues)
+                }
+                return .json(FavoriteItemResponse(favorite: try await self.store.upsertFavorite(favorite)))
+            }
+        }
+
+        router.add("DELETE", "favorites/:id") { [weak self] request in
+            guard let self else { return .error(500, code: "daemonUnavailable", template: "daemon unavailable") }
+            return await self.responding {
+                guard let id = request.parameters["id"], try await self.store.deleteFavorite(id: id) else {
+                    return .error(404, code: "favoriteNotFound", template: "favorite node not found")
+                }
                 return .json(OKResponse())
             }
         }
@@ -331,7 +391,7 @@ public final class DaemonApp: @unchecked Sendable {
                             500, code: "runNoRecord", template: "run {runId} produced no record",
                             params: ["runId": runId])
                     }
-                    return .json(RunResponse(run: record))
+                    return .json(RunResponse(run: SensitiveData.redacted(record)))
                 }
                 return .json(RunStartedResponse(runId: runId, status: dryRun ? "dry-running" : "running"))
             }
@@ -353,7 +413,7 @@ public final class DaemonApp: @unchecked Sendable {
                 let flowId = request.query["flowId"]
                 let limit = Int(request.query["limit"] ?? "50") ?? 50
                 let records = try await self.store.listRuns(flowId: flowId, limit: min(max(limit, 1), 500))
-                return .json(RunListResponse(runs: records))
+                return .json(RunListResponse(runs: records.map(SensitiveData.redacted)))
             }
         }
 
@@ -362,12 +422,12 @@ public final class DaemonApp: @unchecked Sendable {
             return await self.responding {
                 guard let id = request.parameters["id"] else { return .error(400, code: "missingParam", template: "missing {name}", params: ["name": "run id"]) }
                 if let record = await self.runs.wait(runId: id) {
-                    return .json(RunResponse(run: record))
+                    return .json(RunResponse(run: SensitiveData.redacted(record)))
                 }
                 guard let record = try await self.store.run(id: id) else {
                     return .error(404, code: "runNotFound", template: "run not found")
                 }
-                return .json(RunResponse(run: record))
+                return .json(RunResponse(run: SensitiveData.redacted(record)))
             }
         }
 
@@ -513,36 +573,35 @@ public final class DaemonApp: @unchecked Sendable {
     private func responding(_ block: () async throws -> HTTPResponse) async -> HTTPResponse {
         do {
             return try await block()
-        } catch let error as TBApiError {
-            return .error(error.status, code: error.code, template: error.template,
-                          params: error.params, issues: error.issues)
-        } catch let error as TBError {
-            let api = error.api
-            return .error(api.status, code: api.code, template: api.template,
-                          params: api.params, issues: api.issues)
-        } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-            if message.contains("Decoder") || message.contains("keyNotFound")
-                || message.contains("typeMismatch") || message.contains("dataCorrupted")
-            {
-                return .error(
-                    400, code: "invalidJSONBody", template: "invalid JSON body: {detail}",
-                    params: ["detail": message])
-            }
+        } catch FavoriteNodeError.builtInCannotBeDeleted {
             return .error(
-                500, code: "internalError", template: "internal error: {message}",
-                params: ["message": message])
+                403, code: "builtin_favorite",
+                template: "Built-in favorite nodes cannot be deleted.")
+        } catch let error as TBApiError {
+            return Self.safeError(error)
+        } catch let error as TBError {
+            return Self.safeError(error.api)
+        } catch {
+            return .error(500, code: "internalError", template: "An internal error occurred.")
         }
+    }
+
+    private static func safeError(_ error: TBApiError) -> HTTPResponse {
+        if error.code == "internalError" {
+            return .error(error.status, code: error.code, template: "An internal error occurred.")
+        }
+        return .error(error.status, code: error.code, template: error.template,
+                      params: error.params.mapValues(SensitiveData.redact), issues: error.issues)
     }
 
     static func decodeBody<T: Decodable>(_ type: T.Type, _ request: HTTPRequest) throws -> T {
         guard !request.body.isEmpty else {
-            throw TBError.invalidRequest("request body is empty")
+            throw TBApiError(status: 400, code: "invalidJSONBody", template: "Request body must be valid JSON matching the expected format.")
         }
         do {
             return try TBJSON.decodeData(type, from: request.body)
         } catch {
-            throw TBError.invalidRequest("invalid JSON body: \(String(decoding: request.body.prefix(500), as: UTF8.self)) — \(error.localizedDescription)")
+            throw TBApiError(status: 400, code: "invalidJSONBody", template: "Request body must be valid JSON matching the expected format.")
         }
     }
 
@@ -554,9 +613,9 @@ public final class DaemonApp: @unchecked Sendable {
             "flowName": .string(record.flowName),
             "nodeId": .string(record.nodeId),
             "nodeName": record.nodeName.map { .string($0) } ?? .null,
-            "message": record.message.map { .string($0) } ?? .null,
+            "message": record.message.map { .string(SensitiveData.redact($0)) } ?? .null,
             "status": .string(record.status),
-            "comment": record.comment.map { .string($0) } ?? .null,
+            "comment": record.comment.map { .string(SensitiveData.redact($0)) } ?? .null,
             "createdAt": .double(record.createdAt.timeIntervalSince1970),
             "decidedAt": record.decidedAt.map { .double($0.timeIntervalSince1970) } ?? .null,
         ])
@@ -584,15 +643,8 @@ public final class DaemonApp: @unchecked Sendable {
 
     // MARK: Token
 
-    private static func writeTokenFile(_ token: String) {
-        let url = TBPaths.tokenFileURL
-        let data = Data(token.utf8)
-        if FileManager.default.createFile(atPath: url.path, contents: data, attributes: [
-            .posixPermissions: 0o600
-        ]) {
-            return
-        }
-        try? data.write(to: url)
+    private static func writeTokenFile(_ token: String) throws {
+        try PrivateFiles.write(Data(token.utf8), to: TBPaths.tokenFileURL)
     }
 
     private static func generateToken() -> String {

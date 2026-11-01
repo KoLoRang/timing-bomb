@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"os"
 	"strings"
 )
+
+const builtInDesktopNotificationID = "builtin-desktop-notification"
 
 // newFlagSet keeps flag errors out of stderr; we render them ourselves.
 func newFlagSet(name string) *flag.FlagSet {
@@ -249,6 +252,52 @@ func flowCreate(args []string) {
 	flow := object(body, "flow")
 	fmt.Printf("✓ saved flow %s (%s, %d node(s))\n",
 		str(flow, "id"), str(flow, "name"), len(array(flow, "nodes")))
+	if candidate := firstNotificationNode(array(flow, "nodes")); candidate != nil {
+		if hasFavorite(c, builtInDesktopNotificationID) {
+			fmt.Printf("Tip: this flow includes notification node %s. Reuse the built-in desktop notification favorite with `tb node show builtin-desktop-notification --node-only` instead of creating a duplicate.\n", str(candidate, "id"))
+		} else {
+			fmt.Printf("Tip: reuse notification node %s in future flows by saving it with `tb node save --flow %s --node %s`. Check `tb node list` first to avoid duplicate favorites.\n",
+				str(candidate, "id"), str(flow, "id"), str(candidate, "id"))
+		}
+	}
+}
+
+// hasFavorite is advisory: a transient list failure must not make a flow that
+// was already saved look unsuccessful. The command still reports the normal
+// flow-save result and only skips the specialized built-in hint.
+func hasFavorite(c *client, id string) bool {
+	data, err := c.get("favorites", nil)
+	if err != nil {
+		return false
+	}
+	var body map[string]any
+	if decodeNodeJSON(data, &body) != nil {
+		return false
+	}
+	for _, item := range array(body, "favorites") {
+		if favorite, ok := item.(map[string]any); ok && str(favorite, "id") == id {
+			return true
+		}
+	}
+	return false
+}
+
+func firstNotificationNode(nodes []any) map[string]any {
+	for _, raw := range nodes {
+		node, _ := raw.(map[string]any)
+		if node == nil {
+			continue
+		}
+		if str(node, "type") == "action" && str(node, "action") == "notify" {
+			return node
+		}
+		for _, key := range []string{"then", "else", "body"} {
+			if found := firstNotificationNode(array(node, key)); found != nil {
+				return found
+			}
+		}
+	}
+	return nil
 }
 
 func flowValidate(args []string) {
@@ -321,6 +370,258 @@ func flowRemove(args []string) {
 		fail(err.Error())
 	}
 	fmt.Printf("✓ deleted flow %s\n", flowID)
+}
+
+// --- tb node (favorite nodes) --------------------------------------------
+
+func cmdNode(args []string) {
+	if len(args) == 0 {
+		fail("usage: tb node list|show|save|rm")
+	}
+	sub, rest := args[0], args[1:]
+	switch sub {
+	case "list":
+		nodeList(rest)
+	case "show":
+		nodeShow(rest)
+	case "save":
+		nodeSave(rest)
+	case "rm", "remove":
+		nodeRemove(rest)
+	default:
+		fail("unknown subcommand: tb node " + sub)
+	}
+}
+
+func nodeList(args []string) {
+	fs := newFlagSet("tb node list")
+	asJSON := fs.Bool("json", false, "output as JSON")
+	parseOrDie(fs, args)
+	if fs.NArg() != 0 {
+		fail("usage: tb node list [--json]")
+	}
+	c, err := loadClient()
+	if err != nil {
+		fail(err.Error())
+	}
+	data, err := c.get("favorites", nil)
+	if err != nil {
+		fail(err.Error())
+	}
+	if *asJSON {
+		printNodeJSON(data)
+		return
+	}
+	var body map[string]any
+	if err := decode(data, &body); err != nil {
+		fail(err.Error())
+	}
+	favorites := array(body, "favorites")
+	if len(favorites) == 0 {
+		fmt.Println("no favorite nodes yet. Save one with `tb node save --flow <flowId> --node <nodeId>`.")
+		return
+	}
+	fmt.Println(row("ID", 24, "NAME", 24, "TYPE", 10, "SOURCE", 20, "UPDATED", 12))
+	for _, item := range favorites {
+		fav, _ := item.(map[string]any)
+		if fav == nil {
+			continue
+		}
+		node := object(fav, "node")
+		fmt.Println(row(str(fav, "id"), 24, str(fav, "name"), 24,
+			str(node, "type"), 10, str(fav, "sourceFlowName"), 20, fmtTime(fav["updatedAt"]), 12))
+	}
+}
+
+func nodeShow(args []string) {
+	fs := newFlagSet("tb node show")
+	asJSON := fs.Bool("json", false, "output as JSON")
+	nodeOnly := fs.Bool("node-only", false, "output only the node JSON for copying into a flow")
+	parseOrDie(fs, args)
+	if fs.NArg() != 1 {
+		fail("usage: tb node show <id> [--json] [--node-only]")
+	}
+	id := fs.Arg(0)
+	c, err := loadClient()
+	if err != nil {
+		fail(err.Error())
+	}
+	data, err := c.get("favorites", nil)
+	if err != nil {
+		fail(err.Error())
+	}
+	var body map[string]any
+	if err := decodeNodeJSON(data, &body); err != nil {
+		fail(err.Error())
+	}
+	var found map[string]any
+	for _, item := range array(body, "favorites") {
+		fav, _ := item.(map[string]any)
+		if fav != nil && str(fav, "id") == id {
+			found = fav
+			break
+		}
+	}
+	if found == nil {
+		fail("favorite node not found: " + id)
+	}
+	if *nodeOnly {
+		pretty, _ := json.MarshalIndent(object(found, "node"), "", "  ")
+		fmt.Println(string(pretty))
+		return
+	}
+	if *asJSON {
+		pretty, _ := json.MarshalIndent(found, "", "  ")
+		fmt.Println(string(pretty))
+		return
+	}
+	pretty, _ := json.MarshalIndent(found, "", "  ")
+	fmt.Println(string(pretty))
+}
+
+func nodeSave(args []string) {
+	fs := newFlagSet("tb node save")
+	flowID := fs.String("flow", "", "flow id containing the node")
+	nodeID := fs.String("node", "", "node id to save")
+	name := fs.String("name", "", "favorite name (defaults to the node name or id)")
+	file := fs.String("file", "", "JSON file containing a standalone node (exclusive with --flow/--node)")
+	asJSON := fs.Bool("json", false, "output as JSON")
+	parseOrDie(fs, args)
+	if fs.NArg() != 0 {
+		fail("usage: tb node save (--flow <flowId> --node <nodeId> | --file <node.json>) [--name ...] [--json]")
+	}
+	if *file != "" && (*flowID != "" || *nodeID != "") {
+		fail("--file cannot be combined with --flow or --node")
+	}
+	if *file == "" && (*flowID == "" || *nodeID == "") {
+		fail("tb node save requires --flow and --node, or --file")
+	}
+	c, err := loadClient()
+	if err != nil {
+		fail(err.Error())
+	}
+	var node map[string]any
+	var sourceName string
+	if *file != "" {
+		raw, e := os.ReadFile(*file)
+		if e != nil {
+			fail(fmt.Sprintf("failed to read file: %s", *file))
+		}
+		if err := decodeNodeJSON(raw, &node); err != nil {
+			fail(fmt.Sprintf("node JSON is invalid: %v", err))
+		}
+	} else {
+		data, e := c.get("flows/"+url.PathEscape(*flowID), nil)
+		if e != nil {
+			fail(e.Error())
+		}
+		var envelope map[string]any
+		if err := decodeNodeJSON(data, &envelope); err != nil {
+			fail(err.Error())
+		}
+		flow := object(envelope, "flow")
+		sourceName = str(flow, "name")
+		node = findFlowNode(array(flow, "nodes"), *nodeID)
+		if node == nil {
+			fail("node not found in flow: " + *nodeID)
+		}
+	}
+	if str(node, "id") == "" || str(node, "type") == "" {
+		fail("node JSON must contain \"id\" and \"type\"")
+	}
+	favoriteName := strings.TrimSpace(*name)
+	if favoriteName == "" {
+		favoriteName = strings.TrimSpace(str(node, "name"))
+		if favoriteName == "" {
+			favoriteName = str(node, "id")
+		}
+	}
+	body := map[string]any{"name": favoriteName, "node": node}
+	if sourceName != "" {
+		body["sourceFlowName"] = sourceName
+	}
+	data, err := c.post("favorites", nil, mustJSON(body))
+	if err != nil {
+		fail(err.Error())
+	}
+	if *asJSON {
+		printNodeJSON(data)
+		return
+	}
+	var response map[string]any
+	if err := decode(data, &response); err != nil {
+		fail(err.Error())
+	}
+	fav := object(response, "favorite")
+	fmt.Printf("✓ saved favorite node %s (%s)\n", str(fav, "id"), str(fav, "name"))
+}
+
+func nodeRemove(args []string) {
+	fs := newFlagSet("tb node rm")
+	parseOrDie(fs, args)
+	if fs.NArg() != 1 {
+		fail("usage: tb node rm <id>")
+	}
+	if fs.Arg(0) == builtInDesktopNotificationID {
+		fail("Built-in favorite nodes cannot be deleted.")
+	}
+	c, err := loadClient()
+	if err != nil {
+		fail(err.Error())
+	}
+	if _, err := c.delete("favorites/"+url.PathEscape(fs.Arg(0)), nil); err != nil {
+		fail(err.Error())
+	}
+	fmt.Printf("✓ deleted favorite node %s\n", fs.Arg(0))
+}
+
+func findFlowNode(nodes []any, id string) map[string]any {
+	for _, raw := range nodes {
+		node, _ := raw.(map[string]any)
+		if node == nil {
+			continue
+		}
+		if str(node, "id") == id {
+			return node
+		}
+		for _, key := range []string{"then", "else", "body"} {
+			if found := findFlowNode(array(node, key), id); found != nil {
+				return found
+			}
+		}
+	}
+	return nil
+}
+
+// Favorite configurations are copied between flows. Preserve JSON numbers so
+// identifiers or integer parameters above 2^53 are not rounded during copying.
+func decodeNodeJSON(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("expected one JSON value")
+	}
+	return nil
+}
+
+func printNodeJSON(data []byte) {
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, data, "", "  "); err != nil {
+		fail("failed to decode response: " + err.Error())
+	}
+	fmt.Println(pretty.String())
+}
+
+func mustJSON(value any) []byte {
+	data, err := json.Marshal(value)
+	if err != nil {
+		fail("failed to encode JSON: " + err.Error())
+	}
+	return data
 }
 
 // --- tb run ----------------------------------------------------------------
