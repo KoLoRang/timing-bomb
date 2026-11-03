@@ -24,7 +24,7 @@ public final class FileWatchHub: @unchecked Sendable {
         let metas = (try? await store.listFlows()) ?? []
         var wanted: [String: String] = [:]
         for meta in metas {
-            guard meta.flow.trigger?.type == .fileWatch,
+            guard !meta.paused, meta.flow.trigger?.type == .fileWatch,
                 let rawPath = meta.flow.trigger?.path
             else { continue }
             let expanded = (rawPath as NSString).expandingTildeInPath
@@ -132,9 +132,10 @@ public final class FileWatchHub: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard let self, !Task.isCancelled else { return }
             let drained = self.drainEvents(flowId: flowId)
-            guard !drained.isEmpty, let flow = try? await store.flow(id: flowId) else { return }
+            guard !drained.isEmpty, let meta = try? await store.flowMeta(id: flowId), !meta.paused
+            else { return }
             _ = try? await runs.start(
-                flow: flow,
+                flow: meta.flow,
                 trigger: TriggerInfo(
                     type: "fileWatch",
                     payload: .object([

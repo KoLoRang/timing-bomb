@@ -98,6 +98,12 @@ def main():
                                   {"id": "verify", "type": "code", "code": "async function run(ctx) { return {value: ctx.nodes.calculate.output.value, secretPreservedDuringExecution: ctx.nodes.calculate.output.apiKey === ctx.trigger.payload.apiKey}; }"}]}
                 require(request("POST", "/validate", flow)[1]["valid"], "Valid flow rejected")
                 require(request("POST", "/flows", flow)[0] == 200, "Saving flow failed")
+                status, paused = request("POST", "/flows/release-smoke/pause")
+                require(status == 200 and paused["paused"] is True, "Pausing flow failed")
+                require(request("POST", "/hooks/release-smoke", {})[0] == 409, "Paused flow accepts webhook trigger")
+                require(request("POST", "/flows", flow)[1]["paused"] is True, "Saving flow resets paused state")
+                status, resumed = request("POST", "/flows/release-smoke/resume")
+                require(status == 200 and resumed["paused"] is False, "Resuming flow failed")
                 status, result = request("POST", "/flows/release-smoke/run?wait=1", {"payload": {"number": 21, "apiKey": marker}})
                 require(status == 200 and result["run"]["status"] == "success", "Code flow failed")
                 output = result["run"]["context"]["nodes"]["verify"]["output"]
@@ -111,7 +117,8 @@ def main():
                     nodes = database.execute("select inputJson, outputJson, logsJson, error from nodeRuns").fetchall()
                     require(marker not in repr(history + nodes), "Stored terminal history contains synthetic credential")
 
-                for command in (["status", "--json"], ["node", "list", "--json"], ["flow", "list", "--json"]):
+                for command in (["status", "--json"], ["node", "list", "--json"], ["flow", "list", "--json"],
+                                ["flow", "pause", "release-smoke"], ["flow", "resume", "release-smoke"]):
                     completed = subprocess.run([str(cli), *command], env=environment, capture_output=True, timeout=15)
                     require(completed.returncode == 0, "CLI isolated API check failed")
                 denied_cli = subprocess.run([str(cli), "node", "rm", builtin["id"]], env=environment, capture_output=True, timeout=15)

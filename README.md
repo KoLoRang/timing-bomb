@@ -44,7 +44,9 @@ fixed saving claim.
 - **Reusable favorite nodes** with editable input/output notes, scripts and
   action configuration. Save a configured node once and copy it into other flows.
 - **Four trigger types**: manual, webhook, cron schedule, and recursive file
-  watch with debounce.
+  watch with debounce. Pause a flow (right-click it in the flow list, or
+  `tb flow pause <id>`) to skip its automatic triggers until it is resumed;
+  manual runs still work.
 - **Multiple runtimes**: JavaScript in a built-in sandbox, plus Python and
   Shell through system interpreters.
 - **Local CLI integration**: JavaScript nodes can call allowlisted tools such

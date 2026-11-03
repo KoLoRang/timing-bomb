@@ -10,6 +10,9 @@ struct FlowRow: Codable, Equatable, FetchableRecord, MutablePersistableRecord {
     var definitionJson: String
     var createdAt: Date
     var updatedAt: Date
+    /// Paused flows are skipped by automatic triggers (schedule / webhook / fileWatch).
+    /// Kept outside definitionJson so saving the definition never resets it.
+    var paused: Bool = false
 
     init(flow: FlowDefinition, createdAt: Date = Date(), updatedAt: Date = Date()) {
         self.id = flow.id
@@ -211,6 +214,11 @@ public final class Store: Sendable {
             var row = try FavoriteNodeRow(favorite: favorite)
             try row.insert(db)
         }
+        migrator.registerMigration("v6_flow_paused") { db in
+            try db.alter(table: "flows") { t in
+                t.add(column: "paused", .boolean).notNull().defaults(to: false)
+            }
+        }
         try migrator.migrate(dbQueue)
     }
 
@@ -220,6 +228,14 @@ public final class Store: Sendable {
         public var flow: FlowDefinition
         public var createdAt: Date
         public var updatedAt: Date
+        public var paused: Bool
+
+        public init(flow: FlowDefinition, createdAt: Date, updatedAt: Date, paused: Bool = false) {
+            self.flow = flow
+            self.createdAt = createdAt
+            self.updatedAt = updatedAt
+            self.paused = paused
+        }
     }
 
     @discardableResult
@@ -231,6 +247,7 @@ public final class Store: Sendable {
                 db, sql: "SELECT * FROM flows WHERE id = ?", arguments: [flow.id])
             {
                 row.createdAt = existing.createdAt
+                row.paused = existing.paused
             }
             try row.save(db)
         }
@@ -248,7 +265,8 @@ public final class Store: Sendable {
             guard let flow = row.definition else {
                 throw TBError.internalError("stored flow '\(id)' is not decodable")
             }
-            return FlowMeta(flow: flow, createdAt: row.createdAt, updatedAt: row.updatedAt)
+            return FlowMeta(
+                flow: flow, createdAt: row.createdAt, updatedAt: row.updatedAt, paused: row.paused)
         }
     }
 
@@ -261,9 +279,21 @@ public final class Store: Sendable {
             let rows = try FlowRow.order(Column("name")).fetchAll(db)
             return rows.compactMap { row in
                 row.definition.map {
-                    FlowMeta(flow: $0, createdAt: row.createdAt, updatedAt: row.updatedAt)
+                    FlowMeta(
+                        flow: $0, createdAt: row.createdAt, updatedAt: row.updatedAt,
+                        paused: row.paused)
                 }
             }
+        }
+    }
+
+    /// Pauses or resumes a flow; returns false when the flow does not exist.
+    @discardableResult
+    public func setFlowPaused(id: String, paused: Bool) async throws -> Bool {
+        try await dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE flows SET paused = ? WHERE id = ?", arguments: [paused, id])
+            return db.changesCount > 0
         }
     }
 

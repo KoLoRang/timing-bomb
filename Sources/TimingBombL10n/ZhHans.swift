@@ -38,6 +38,7 @@ enum ZhHans {
         "missing {name}": "缺少 {name}",
         "run {runId} produced no record": "运行 {runId} 未产生记录",
         "flow not found": "流程不存在",
+        "flow is paused": "流程已暂停",
         "run not found": "运行记录不存在",
         "approval not found": "审批记录不存在",
         "flow validation failed ({count} error(s))": "流程校验失败（{count} 个错误）",
@@ -196,6 +197,12 @@ enum ZhHans {
         "No flows yet\nClick + to create, or import with tb flow create":
             "暂无任务\n点击 + 新建，或用 tb flow create 导入",
         "Delete": "删除",
+        "Pause": "暂停执行",
+        "Resume": "恢复执行",
+        "Paused": "已暂停",
+        "Active": "已启用",
+        "Paused: schedule, webhook and file watch triggers are skipped":
+            "已暂停：定时、外部API和文件监听触发都会被跳过",
         "Select a flow on the left to view its workflow": "选择左侧任务查看工作流",
         "{count} node(s)": "{count} 节点",
         "Manual trigger": "手动触发",

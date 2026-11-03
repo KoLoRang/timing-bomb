@@ -20,6 +20,8 @@ Commands:
   flow show <id> [--json]      Show a flow definition
   flow create --file <f>       Create/update a flow (also reads stdin)
   flow validate --file <f>     Validate a flow without saving
+  flow pause <id>              Pause automatic triggers (schedule/webhook/fileWatch)
+  flow resume <id>             Resume a paused flow
   flow rm <id>                 Delete a flow
   node list [--json]           List reusable favorite nodes
   node show <id> [--json]      Show a favorite node (--node-only for flow JSON)

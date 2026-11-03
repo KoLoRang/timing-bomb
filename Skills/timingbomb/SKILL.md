@@ -65,6 +65,8 @@ tb flow list [--json]                         # list flows
 tb flow show <flowId> [--json]                # inspect a flow definition
 tb flow create --file <flow.json>             # create/update a flow (stdin also works)
 tb flow validate --file <flow.json>           # validate only, no save (must pass before every delivery)
+tb flow pause <flowId>                        # pause: schedule/webhook/fileWatch triggers are skipped (tb run still works)
+tb flow resume <flowId>                       # resume a paused flow (slots missed while paused are not caught up)
 tb flow rm <flowId>                           # delete a flow
 tb node list [--json]                         # list reusable favorite nodes
 tb node show <favoriteId> [--json]            # inspect notes, script/config and source

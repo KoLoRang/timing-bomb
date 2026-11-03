@@ -45,6 +45,8 @@ public actor Scheduler {
             let last = lastFired[flowId] ?? .distantPast
             guard slot > last else { continue }
             lastFired[flowId] = slot
+            // Paused: still advance lastFired so resuming never catches up slots missed while paused.
+            guard !meta.paused else { continue }
 
             let late = nowDate.timeIntervalSince(slot)
             let misfire = trigger.misfire ?? "skip"

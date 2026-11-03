@@ -37,6 +37,14 @@ struct FlowItemResponse: Codable {
     let flow: FlowDefinition
     let createdAt: Date
     let updatedAt: Date
+    let paused: Bool
+
+    init(_ meta: Store.FlowMeta) {
+        flow = meta.flow
+        createdAt = meta.createdAt
+        updatedAt = meta.updatedAt
+        paused = meta.paused
+    }
 }
 
 struct FavoriteListResponse: Codable {
@@ -265,7 +273,7 @@ public final class DaemonApp: @unchecked Sendable {
                 let meta = try await self.store.upsertFlow(flow)
                 await self.fileWatch.reload()
                 return .json(
-                    FlowItemResponse(flow: meta.flow, createdAt: meta.createdAt, updatedAt: meta.updatedAt))
+                    FlowItemResponse(meta))
             }
         }
 
@@ -276,8 +284,30 @@ public final class DaemonApp: @unchecked Sendable {
                     let meta = try await self.store.flowMeta(id: id)
                 else { return .error(404, code: "flowNotFound", template: "flow not found") }
                 return .json(
-                    FlowItemResponse(flow: meta.flow, createdAt: meta.createdAt, updatedAt: meta.updatedAt))
+                    FlowItemResponse(meta))
             }
+        }
+
+        let pauseHandler: @Sendable (DaemonApp, HTTPRequest, Bool) async -> HTTPResponse = {
+            app, request, paused in
+            await app.responding {
+                guard let id = request.parameters["id"],
+                    try await app.store.setFlowPaused(id: id, paused: paused),
+                    let meta = try await app.store.flowMeta(id: id)
+                else { return .error(404, code: "flowNotFound", template: "flow not found") }
+                await app.fileWatch.reload()
+                return .json(FlowItemResponse(meta))
+            }
+        }
+
+        router.add("POST", "flows/:id/pause") { [weak self] request in
+            guard let self else { return .error(500, code: "daemonUnavailable", template: "daemon unavailable") }
+            return await pauseHandler(self, request, true)
+        }
+
+        router.add("POST", "flows/:id/resume") { [weak self] request in
+            guard let self else { return .error(500, code: "daemonUnavailable", template: "daemon unavailable") }
+            return await pauseHandler(self, request, false)
         }
 
         router.add("DELETE", "flows/:id") { [weak self] request in
@@ -378,8 +408,14 @@ public final class DaemonApp: @unchecked Sendable {
         let runHandler: @Sendable (DaemonApp, HTTPRequest, String) async -> HTTPResponse = {
             app, request, triggerType in
             await app.responding {
-                guard let flowId = request.parameters["id"], let flow = try await app.store.flow(id: flowId)
+                guard let flowId = request.parameters["id"],
+                    let meta = try await app.store.flowMeta(id: flowId)
                 else { return .error(404, code: "flowNotFound", template: "flow not found") }
+                // Manual runs stay allowed; automatic (webhook) triggers are rejected while paused.
+                if meta.paused && triggerType != "manual" {
+                    return .error(409, code: "flowPaused", template: "flow is paused")
+                }
+                let flow = meta.flow
                 let payload = Self.extractPayload(request)
                 let dryRun = ["1", "true"].contains(request.query["dryRun"] ?? "")
                 let runId = try await app.runs.start(

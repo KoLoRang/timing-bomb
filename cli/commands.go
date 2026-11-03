@@ -103,7 +103,7 @@ func cmdAuth(args []string) {
 
 func cmdFlow(args []string) {
 	if len(args) == 0 {
-		fail("usage: tb flow list|show|create|validate|rm")
+		fail("usage: tb flow list|show|create|validate|pause|resume|rm")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -115,6 +115,10 @@ func cmdFlow(args []string) {
 		flowCreate(rest)
 	case "validate":
 		flowValidate(rest)
+	case "pause":
+		flowSetPaused(rest, true)
+	case "resume":
+		flowSetPaused(rest, false)
 	case "rm", "remove":
 		flowRemove(rest)
 	default:
@@ -148,7 +152,7 @@ func flowList(args []string) {
 		fmt.Println("no flows yet. Create one with `tb flow create --file <flow.json>`.")
 		return
 	}
-	fmt.Println(row("ID", 24, "NAME", 20, "NODES", 6, "TRIGGER", 14, "UPDATED", 12))
+	fmt.Println(row("ID", 24, "NAME", 20, "STATUS", 8, "NODES", 6, "TRIGGER", 14, "UPDATED", 12))
 	for _, item := range flows {
 		entry, _ := item.(map[string]any)
 		if entry == nil {
@@ -164,8 +168,12 @@ func flowList(args []string) {
 				trigger = kind
 			}
 		}
+		status := "active"
+		if paused, _ := entry["paused"].(bool); paused {
+			status = "paused"
+		}
 		fmt.Println(row(
-			str(flow, "id"), 24, str(flow, "name"), 20,
+			str(flow, "id"), 24, str(flow, "name"), 20, status, 8,
 			fmt.Sprintf("%d", len(nodes)), 6, trigger, 14,
 			fmtTime(entry["updatedAt"]), 12))
 	}
@@ -352,6 +360,34 @@ func issueMessage(issue map[string]any) string {
 		return msg
 	}
 	return "(no message)"
+}
+
+// flowSetPaused pauses or resumes a flow. A paused flow skips schedule,
+// webhook and file-watch triggers; `tb run` still works.
+func flowSetPaused(args []string, paused bool) {
+	verb := "resume"
+	if paused {
+		verb = "pause"
+	}
+	fs := newFlagSet("tb flow " + verb)
+	parseOrDie(fs, args)
+	if fs.NArg() != 1 {
+		fail("usage: tb flow " + verb + " <flowId>")
+	}
+	flowID := fs.Arg(0)
+
+	c, err := loadClient()
+	if err != nil {
+		fail(err.Error())
+	}
+	if _, err := c.post("flows/"+url.PathEscape(flowID)+"/"+verb, nil, nil); err != nil {
+		fail(err.Error())
+	}
+	if paused {
+		fmt.Printf("✓ paused flow %s (schedule/webhook/fileWatch triggers are skipped; `tb run` still works)\n", flowID)
+	} else {
+		fmt.Printf("✓ resumed flow %s\n", flowID)
+	}
 }
 
 func flowRemove(args []string) {

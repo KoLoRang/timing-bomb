@@ -72,6 +72,16 @@ struct FlowsView: View {
                         FlowListRow(item: item)
                             .tag(item.id)
                             .contextMenu {
+                                Button {
+                                    Task { await setPaused(item, paused: !item.isPaused) }
+                                } label: {
+                                    if item.isPaused {
+                                        Label(L10n.t("Resume"), systemImage: "play.circle")
+                                    } else {
+                                        Label(L10n.t("Pause"), systemImage: "pause.circle")
+                                    }
+                                }
+                                Divider()
                                 Button(L10n.t("Delete"), role: .destructive) {
                                     Task { await delete(item) }
                                 }
@@ -122,6 +132,17 @@ struct FlowsView: View {
         }
     }
 
+    private func setPaused(_ item: FlowItemDTO, paused: Bool) async {
+        do {
+            try await TBAPIClient.setFlowPaused(id: item.id, paused: paused)
+            await reload()
+        } catch let error as APIClientError {
+            errorMessage = error.rendered
+        } catch {
+            errorMessage = String(describing: error)
+        }
+    }
+
     private func delete(_ item: FlowItemDTO) async {
         do {
             try await TBAPIClient.deleteFlow(id: item.id)
@@ -139,9 +160,14 @@ struct FlowListRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(item.flow.name)
-                .font(.system(size: 13, weight: .medium))
-                .lineLimit(1)
+            HStack(spacing: 6) {
+                Text(item.flow.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                    .foregroundStyle(item.isPaused ? .secondary : .primary)
+                Spacer(minLength: 0)
+                FlowStatusBadge(paused: item.isPaused)
+            }
             HStack(spacing: 6) {
                 TriggerBadge(flow: item.flow)
                 Text(L10n.t("{count} node(s)", ["count": String(item.flow.nodes.count)]))
@@ -150,6 +176,26 @@ struct FlowListRow: View {
             }
         }
         .padding(.vertical, 3)
+    }
+}
+
+struct FlowStatusBadge: View {
+    let paused: Bool
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: paused ? "pause.fill" : "play.fill")
+                .font(.system(size: 7))
+            Text(paused ? L10n.t("Paused") : L10n.t("Active"))
+                .font(.caption2.weight(.medium))
+        }
+        .foregroundStyle(paused ? Color.orange : Color.green)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background((paused ? Color.orange : Color.green).opacity(0.12), in: Capsule())
+        .help(paused
+            ? L10n.t("Paused: schedule, webhook and file watch triggers are skipped")
+            : L10n.t("Active"))
     }
 }
 

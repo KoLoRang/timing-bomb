@@ -9,8 +9,11 @@ struct FlowItemDTO: Decodable, Identifiable {
     let flow: FlowDefinition
     let createdAt: Date
     let updatedAt: Date
+    /// Absent when talking to an older daemon.
+    let paused: Bool?
 
     var id: String { flow.id }
+    var isPaused: Bool { paused ?? false }
 }
 
 struct FlowListDTO: Decodable {
@@ -166,6 +169,10 @@ enum TBAPIClient {
         let body = try TBJSON.encodeData(flow)
         let data = try await request("POST", "flows", body: body)
         return try TBJSON.decodeData(FlowItemDTO.self, from: data)
+    }
+
+    static func setFlowPaused(id: String, paused: Bool) async throws {
+        _ = try await request("POST", "flows/\(id)/\(paused ? "pause" : "resume")")
     }
 
     static func deleteFlow(id: String) async throws {

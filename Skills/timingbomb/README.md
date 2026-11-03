@@ -61,6 +61,7 @@ tb node list                                  # list reusable favorite nodes
 tb node show <favoriteId> --node-only          # export a node for use in another flow
 tb flow create --file myflow.json             # create / update a flow
 tb flow validate --file myflow.json           # validate without saving
+tb flow pause myflow                          # pause automatic triggers; tb flow resume myflow to undo
 tb run myflow --input '{"base": 5}' --wait    # trigger and wait for the result
 tb runs list --limit 10                       # run history
 tb allow add "git *"                          # shell allowlist rule
