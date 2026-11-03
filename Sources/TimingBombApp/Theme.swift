@@ -78,3 +78,13 @@ enum LanguageMode: String, CaseIterable, Identifiable {
         }
     }
 }
+
+enum AppLayout {
+    /// Width of the second (list) column on every page, kept identical so
+    /// switching pages in the sidebar does not shift the layout.
+    static let listColumnWidth: CGFloat = 280
+    static let sidebarWidth: CGFloat = 200
+    /// Sidebar + list column + the widest detail content (the flow trigger row),
+    /// so no page ever forces the split view to shrink the sidebar.
+    static let windowMinWidth: CGFloat = 1200
+}

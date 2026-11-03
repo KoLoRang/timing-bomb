@@ -10,6 +10,7 @@ struct FavoriteNodesView: View {
     @State private var errorText: String?
     @State private var collecting = false
     @State private var deleting: FavoriteNode?
+    @ObservedObject private var daemon = DaemonManager.shared
 
     private var filtered: [FavoriteNode] {
         favorites.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
@@ -27,9 +28,11 @@ struct FavoriteNodesView: View {
                         .help(L10n.t("Refresh"))
                 }
                 .buttonStyle(.borderless)
-                .padding(12)
+                .padding(.vertical, 8)
+                .padding(.leading, 16)
+                .padding(.trailing, 12)
                 TextField(L10n.t("Search favorite nodes"), text: $search)
-                    .textFieldStyle(.roundedBorder).padding(.horizontal, 12).padding(.bottom, 8)
+                    .textFieldStyle(.roundedBorder).padding(.horizontal, 16).padding(.bottom, 8)
                 if loading && favorites.isEmpty {
                     Spacer(); ProgressView(); Spacer()
                 } else {
@@ -51,9 +54,10 @@ struct FavoriteNodesView: View {
                         }
                     }
                     .listStyle(.plain)
+                .padding(.horizontal, 8)
                 }
             }
-            .frame(width: 260)
+            .frame(width: AppLayout.listColumnWidth)
             Divider()
             VStack(spacing: 0) {
                 if let errorText {
@@ -78,6 +82,9 @@ struct FavoriteNodesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task { await reload() }
+        .onChange(of: daemon.isRunning) { _, running in
+            if running { Task { await reload() } }
+        }
         .sheet(isPresented: $collecting) {
             CollectNodeSheet { saved in Task { await reload(select: saved.id) } }
         }
@@ -290,7 +297,7 @@ struct CollectNodeSheet: View {
                     .disabled(node == nil || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving)
             }.padding(12)
         }
-        .frame(width: 580, height: 620)
+        .frame(minWidth: 620, idealWidth: 680, minHeight: 560, idealHeight: 640)
         .task {
             defer { loading = false }
             do {

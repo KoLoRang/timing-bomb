@@ -22,6 +22,11 @@ final class DaemonManager: ObservableObject {
 
     private var pollTask: Task<Void, Never>?
 
+    var isRunning: Bool {
+        if case .running = state { return true }
+        return false
+    }
+
     static let shared = DaemonManager()
 
     init() {
@@ -103,9 +108,15 @@ final class DaemonManager: ObservableObject {
             try process.run()
             try PrivateFiles.write(Data(String(process.processIdentifier).utf8), to: pidFileURL)
             lastError = nil
+            // Poll quickly until the HTTP server answers, so pages waiting on
+            // `isRunning` load as soon as possible on first launch.
             Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 700_000_000)
-                await self?.refresh()
+                for _ in 0..<35 {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    guard let self else { return }
+                    await self.refresh()
+                    if self.isRunning { return }
+                }
             }
         } catch {
             if process.isRunning { process.terminate() }

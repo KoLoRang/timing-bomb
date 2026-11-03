@@ -10,15 +10,19 @@ struct FlowsView: View {
     @State private var loading = false
     @State private var errorMessage: String?
     @State private var showNewFlow = false
+    @ObservedObject private var daemon = DaemonManager.shared
 
     var body: some View {
         HStack(spacing: 0) {
             flowList
-                .frame(width: 260)
+                .frame(width: AppLayout.listColumnWidth)
             Divider()
             detail
         }
         .task { await reload() }
+        .onChange(of: daemon.isRunning) { _, running in
+            if running { Task { await reload() } }
+        }
         .sheet(isPresented: $showNewFlow) {
             NewFlowSheet { id in
                 Task { await reload(select: id) }
@@ -29,7 +33,7 @@ struct FlowsView: View {
     private var flowList: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(L10n.t("Flows")).font(.headline).padding(.leading, 12)
+                Text(L10n.t("Flows")).font(.headline).padding(.leading, 16)
                 Spacer()
                 Button {
                     showNewFlow = true
@@ -89,6 +93,7 @@ struct FlowsView: View {
                     }
                 }
                 .listStyle(.plain)
+                .padding(.horizontal, 8)
             }
         }
     }

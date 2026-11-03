@@ -12,10 +12,11 @@ struct RunsView: View {
     @State private var errorMessage: String?
     @State private var confirmDeleteSelected = false
     @State private var confirmClearAll = false
+    @ObservedObject private var daemon = DaemonManager.shared
 
     var body: some View {
         HStack(spacing: 0) {
-            runList.frame(width: 330)
+            runList.frame(width: AppLayout.listColumnWidth)
             Divider()
             if let runId = selectedRunId {
                 RunDetailView(runId: runId)
@@ -32,6 +33,9 @@ struct RunsView: View {
             }
         }
         .task { await reload() }
+        .onChange(of: daemon.isRunning) { _, running in
+            if running { Task { await reload() } }
+        }
         .alert(L10n.t("Delete this run record?"), isPresented: $confirmDeleteSelected) {
             Button(L10n.t("Delete"), role: .destructive) {
                 Task { await deleteSelected() }
@@ -63,6 +67,7 @@ struct RunsView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Text(L10n.t("Runs")).font(.headline)
+                    .padding(.leading, 16)
                 Spacer()
                 TextField(L10n.t("Filter by flow"), text: $filterFlowId)
                     .textFieldStyle(.roundedBorder)
@@ -123,6 +128,7 @@ struct RunsView: View {
                     }
                 }
                 .listStyle(.plain)
+                .padding(.horizontal, 8)
             }
         }
     }

@@ -41,8 +41,7 @@ struct NodeEditorView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            ScrollView {
-                Form {
+            Form {
                 Section(L10n.t("Basics")) {
                     LabeledContent(L10n.t("Node ID")) {
                         Text(node.id).font(.system(.caption, design: .monospaced))
@@ -90,15 +89,14 @@ struct NodeEditorView: View {
                                 get: { node.skipIf ?? "" },
                                 set: { node.skipIf = $0.isEmpty ? nil : $0 }
                             ),
+                            prompt: Text("nodes.a.output.skip === true"),
                             axis: .vertical
                         )
                         .font(.system(.caption, design: .monospaced))
                     }
                 }
                 .formStyle(.grouped)
-                .padding(.vertical, 4)
                 .disabled(favoriting || saving)
-            }
 
             if let errorText = errorText ?? saveError {
                 Text(errorText)
@@ -121,7 +119,7 @@ struct NodeEditorView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 500, idealWidth: 540, minHeight: 540, idealHeight: 620)
+        .frame(minWidth: 620, idealWidth: 720, minHeight: 520, idealHeight: 680)
         .interactiveDismissDisabled(favoriting || saving)
         .onChange(of: node) { _, _ in favoriteSaved = false }
         .onChange(of: paramsText) { _, _ in favoriteSaved = false }
@@ -340,11 +338,14 @@ struct NodeEditorView: View {
 
     private func numberField(_ binding: Binding<Int?>, min minimum: Int = 1) -> some View {
         TextField(
-            "-",
+            "",
             text: Binding(
                 get: { binding.wrappedValue.map(String.init) ?? "" },
                 set: { binding.wrappedValue = Int($0).map { max($0, minimum) } }
-            ))
+            ),
+            prompt: Text("-"))
+        .labelsHidden()
+        .multilineTextAlignment(.trailing)
         .textFieldStyle(.roundedBorder)
         .frame(width: 90)
     }

@@ -31,9 +31,9 @@ struct TimingBombApp: App {
             MainSidebarView()
                 // The min size must fit the tallest sheet (node editor), otherwise
                 // the bottom buttons get clipped on create/edit.
-                .frame(minWidth: 1060, minHeight: 700)
+                .frame(minWidth: AppLayout.windowMinWidth, minHeight: 700)
         }
-        .defaultSize(width: 1280, height: 800)
+        .defaultSize(width: 1320, height: 820)
         .windowResizability(.contentMinSize)
     }
 }
@@ -89,14 +89,22 @@ struct MainSidebarView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $page) {
+            // Plain VStack, not a ScrollView: inside the sidebar a ScrollView's
+            // titlebar content inset shifts hit-testing away from the drawn rows.
+            VStack(spacing: 4) {
                 ForEach(Page.allCases) { item in
-                    Label(item.label, systemImage: item.icon)
-                        .tag(item)
+                    SidebarRow(item: item, selected: (page ?? .flows) == item) {
+                        page = item
+                    }
                 }
+                Spacer(minLength: 0)
             }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            // Fixed width: the sidebar must never be squeezed by a wide detail page,
+            // otherwise its contents shift whenever the selected page changes.
+            .navigationSplitViewColumnWidth(AppLayout.sidebarWidth)
         } detail: {
             switch page {
             case .flows: FlowsView()
@@ -111,5 +119,38 @@ struct MainSidebarView: View {
         .onAppear {
             WindowOpener.open = { openWindow(id: "main") }
         }
+    }
+}
+
+private struct SidebarRow: View {
+    let item: MainSidebarView.Page
+    let selected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 14))
+                    .frame(width: 20)
+                    .foregroundStyle(selected ? Color.white : Color.accentColor)
+                Text(item.label)
+                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? Color.white : Color.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(selected
+                        ? Color.accentColor
+                        : (hovering ? Color.primary.opacity(0.06) : Color.clear))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }

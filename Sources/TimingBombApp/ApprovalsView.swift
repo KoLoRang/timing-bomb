@@ -26,6 +26,7 @@ struct ApprovalsView: View {
     @State private var errorMessage: String?
     @State private var working = false
     @State private var confirmClear = false
+    @ObservedObject private var daemon = DaemonManager.shared
 
     private var pending: [ApprovalRecord] {
         approvals.filter(\.isPending)
@@ -41,11 +42,14 @@ struct ApprovalsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            listColumn.frame(width: 340)
+            listColumn.frame(width: AppLayout.listColumnWidth)
             Divider()
             detail
         }
         .task { await reload() }
+        .onChange(of: daemon.isRunning) { _, running in
+            if running { Task { await reload() } }
+        }
         .alert(L10n.t("Clear the whole approval history?"), isPresented: $confirmClear) {
             Button(L10n.t("Clear"), role: .destructive) {
                 Task { await clearHistory() }
@@ -74,6 +78,7 @@ struct ApprovalsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 Button {
                     Task { await reload() }
                 } label: {
@@ -90,9 +95,10 @@ struct ApprovalsView: View {
                     .buttonStyle(.borderless)
                     .disabled(history.isEmpty)
                     .help(L10n.t("Clear the whole approval history"))
-                    .padding(.trailing, 10)
                 }
             }
+            .padding(.leading, 16)
+            .padding(.trailing, 12)
             .padding(.vertical, 8)
 
             if visible.isEmpty {
@@ -120,6 +126,7 @@ struct ApprovalsView: View {
                     }
                 }
                 .listStyle(.plain)
+                .padding(.horizontal, 8)
             }
         }
     }
