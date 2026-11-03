@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-const version = "0.1.5"
+const version = "0.1.6"
 
 const usage = `tb — TimingBomb CLI client (v%s)
 
@@ -34,6 +34,11 @@ Commands:
   runs cancel <runId>          Cancel a running run
   runs rm <runId>              Delete one run record
   runs clear [--flowId <id>]   Clear run records (--yes to confirm)
+  approvals list [--all]       Pending approvals (--all includes decided history, --json)
+  approvals approve <id>       Approve and resume the run (--comment "...")
+  approvals reject <id>        Reject and fail the run (--comment "...")
+  approvals rm <id>            Delete one decided approval record
+  approvals clear              Clear decided approval history (--yes to confirm)
   allow list                   List shell/appleScript allowlist rules
   allow add "<pattern>"        Add a rule (e.g. "git *")
   allow rm "<pattern>"         Remove a rule (exact text)
@@ -75,6 +80,8 @@ func main() {
 		cmdRun(args[1:])
 	case "runs":
 		cmdRuns(args[1:])
+	case "approvals", "approval":
+		cmdApprovals(args[1:])
 	case "allow":
 		cmdAllow(args[1:])
 	case "logging":

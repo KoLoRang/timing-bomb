@@ -64,6 +64,7 @@ tb flow validate --file myflow.json           # validate without saving
 tb flow pause myflow                          # pause automatic triggers; tb flow resume myflow to undo
 tb run myflow --input '{"base": 5}' --wait    # trigger and wait for the result
 tb runs list --limit 10                       # run history
+tb approvals list                             # pending approvals; tb approvals approve <id> to resume
 tb allow add "git *"                          # shell allowlist rule
 ```
 

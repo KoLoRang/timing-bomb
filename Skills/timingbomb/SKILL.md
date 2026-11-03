@@ -79,6 +79,13 @@ tb run <flowId> --dry-run --wait              # dry-run: tools/actions cause no 
 tb runs list [--flowId <id>] [--limit 20]     # run history
 tb runs show <runId>                          # node timeline / logs / final context
 tb runs cancel <runId>                        # cancel a run
+tb runs rm <runId>                            # delete one run record
+tb runs clear [--flowId <id>] --yes           # clear run records (all flows, or one flow)
+tb approvals list [--all] [--json]            # pending approvals (--all includes decided history)
+tb approvals approve <approvalId> [--comment "..."]  # approve: the suspended run resumes
+tb approvals reject <approvalId> [--comment "..."]   # reject: the run fails and stops
+tb approvals rm <approvalId>                  # delete one decided record (pending ones are protected)
+tb approvals clear --yes                      # clear decided approval history (pending kept)
 tb allow list|add "<pattern>"|rm "<pattern>"  # shell/appleScript allowlist
 tb logging on|off|status                      # run-history logging toggle
 ```
@@ -208,11 +215,13 @@ JS contract:
 
 ### approval node — `{"id": "...", "type": "approval", "message": "Amount {{nodes.a.output.amount}} — please confirm"}`
 
-Execution **suspends** at this node (run status awaitingApproval) until handled in the app's Approvals page or via API:
+Execution **suspends** at this node (run status awaitingApproval) until handled in the app's Approvals page or with `tb approvals approve|reject <approvalId>` (find the id with `tb approvals list`):
 
 - Approve → execution resumes after the node (context/timeline preserved, same runId)
 - Reject (optional comment) → the run fails and stops
 - `message` supports `{{ templates }}`; **not allowed inside loop bodies** (the validator rejects it); fine inside if-branches
+
+Approving or rejecting is a user decision: only do it when the user explicitly asks; otherwise report the pending approval and let them handle it.
 
 API: `GET /approvals`; `POST /approvals/<id>/approve|reject` (body may carry `{"comment": "..."}`); `DELETE /approvals` (clears decided history, keeps pending).
 

@@ -890,6 +890,151 @@ func runsClear(args []string) {
 	fmt.Printf("✓ deleted %d run record(s) for %s\n", int(num(body, "deleted")), scope)
 }
 
+// --- tb approvals ----------------------------------------------------------
+
+func cmdApprovals(args []string) {
+	if len(args) == 0 {
+		fail("usage: tb approvals list|approve|reject|rm|clear")
+	}
+	sub, rest := args[0], args[1:]
+	switch sub {
+	case "list":
+		approvalsList(rest)
+	case "approve":
+		approvalsDecide(rest, "approve")
+	case "reject":
+		approvalsDecide(rest, "reject")
+	case "rm", "remove":
+		approvalsRemove(rest)
+	case "clear":
+		approvalsClear(rest)
+	default:
+		fail("unknown subcommand: tb approvals " + sub)
+	}
+}
+
+func approvalsList(args []string) {
+	fs := newFlagSet("tb approvals list")
+	all := fs.Bool("all", false, "include decided (approved/rejected) history")
+	asJSON := fs.Bool("json", false, "output as JSON")
+	parseOrDie(fs, args)
+
+	c, err := loadClient()
+	if err != nil {
+		fail(err.Error())
+	}
+	data, err := c.get("approvals", nil)
+	if err != nil {
+		fail(err.Error())
+	}
+	var body map[string]any
+	if err := decode(data, &body); err != nil {
+		fail(err.Error())
+	}
+	var records []any
+	for _, item := range array(body, "approvals") {
+		record, _ := item.(map[string]any)
+		if record == nil {
+			continue
+		}
+		if *all || str(record, "status") == "pending" {
+			records = append(records, record)
+		}
+	}
+	if *asJSON {
+		printJSON(mustJSON(map[string]any{"approvals": records}))
+		return
+	}
+	if len(records) == 0 {
+		if *all {
+			fmt.Println("no approval records yet")
+		} else {
+			fmt.Println("nothing pending approval")
+		}
+		return
+	}
+	fmt.Println(row("APPROVAL ID", 38, "FLOW", 18, "NODE", 14, "STATUS", 9, "CREATED", 12))
+	for _, item := range records {
+		record := item.(map[string]any)
+		fmt.Println(row(
+			str(record, "id"), 38, str(record, "flowId"), 18, str(record, "nodeId"), 14,
+			str(record, "status"), 9, fmtTime(record["createdAt"]), 12))
+		if message := str(record, "message"); message != "" {
+			fmt.Printf("    %s\n", message)
+		}
+	}
+}
+
+func approvalsDecide(args []string, decision string) {
+	fs := newFlagSet("tb approvals " + decision)
+	comment := fs.String("comment", "", "optional comment stored with the decision")
+	parseOrDie(fs, args)
+	if fs.NArg() != 1 {
+		fail(fmt.Sprintf("usage: tb approvals %s <approvalId> [--comment \"...\"]", decision))
+	}
+	id := fs.Arg(0)
+
+	c, err := loadClient()
+	if err != nil {
+		fail(err.Error())
+	}
+	var body []byte
+	if *comment != "" {
+		body = mustJSON(map[string]any{"comment": *comment})
+	}
+	data, err := c.post("approvals/"+url.PathEscape(id)+"/"+decision, nil, body)
+	if err != nil {
+		fail(err.Error())
+	}
+	var envelope map[string]any
+	if err := decode(data, &envelope); err != nil {
+		fail(err.Error())
+	}
+	record := object(envelope, "approval")
+	fmt.Printf("✓ %s (approvalId=%s, runId=%s)\n", str(record, "status"), id, str(record, "runId"))
+}
+
+func approvalsRemove(args []string) {
+	fs := newFlagSet("tb approvals rm")
+	parseOrDie(fs, args)
+	if fs.NArg() != 1 {
+		fail("usage: tb approvals rm <approvalId>")
+	}
+	id := fs.Arg(0)
+
+	c, err := loadClient()
+	if err != nil {
+		fail(err.Error())
+	}
+	if _, err := c.delete("approvals/"+url.PathEscape(id), nil); err != nil {
+		fail(err.Error())
+	}
+	fmt.Printf("✓ deleted approval record %s\n", id)
+}
+
+func approvalsClear(args []string) {
+	fs := newFlagSet("tb approvals clear")
+	yes := fs.Bool("yes", false, "skip confirmation")
+	parseOrDie(fs, args)
+	if !*yes {
+		fmt.Println("This will delete all decided approval records (pending ones are kept); it cannot be undone. Re-run with --yes to confirm.")
+		os.Exit(1)
+	}
+	c, err := loadClient()
+	if err != nil {
+		fail(err.Error())
+	}
+	data, err := c.delete("approvals", nil)
+	if err != nil {
+		fail(err.Error())
+	}
+	var body map[string]any
+	if err := decode(data, &body); err != nil {
+		fail(err.Error())
+	}
+	fmt.Printf("✓ deleted %d decided approval record(s)\n", int(num(body, "deleted")))
+}
+
 // --- tb allow --------------------------------------------------------------
 
 func cmdAllow(args []string) {
