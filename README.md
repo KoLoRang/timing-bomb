@@ -43,7 +43,7 @@ fixed saving claim.
   nodes.
 - **Reusable favorite nodes** with editable input/output notes, scripts and
   action configuration. Save a configured node once and copy it into other flows.
-- **Four trigger types**: manual, webhook, cron schedule, and recursive file
+- **Four trigger types**: manual, webhook, schedule (cron or a one-shot date & time), and recursive file
   watch with debounce. Pause a flow (right-click it in the flow list, or
   `tb flow pause <id>`) to skip its automatic triggers until it is resumed;
   manual runs still work.

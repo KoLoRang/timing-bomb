@@ -329,7 +329,7 @@ enum Presentation {
         guard let trigger = flow.trigger else { return (L10n.t("Manual trigger"), nil) }
         switch trigger.type ?? .manual {
         case .schedule:
-            return (L10n.t("Scheduled trigger"), trigger.cron ?? nil)
+            return (L10n.t("Scheduled trigger"), trigger.cron ?? trigger.runAt)
         case .webhook:
             return (L10n.t("Webhook trigger"), "/hooks/\(flow.id)")
         case .fileWatch:

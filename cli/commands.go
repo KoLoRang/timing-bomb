@@ -164,6 +164,8 @@ func flowList(args []string) {
 		if t := object(flow, "trigger"); t != nil {
 			if cron := str(t, "cron"); cron != "" {
 				trigger = cron
+			} else if runAt := str(t, "runAt"); runAt != "" {
+				trigger = "at " + runAt
 			} else if kind := str(t, "type"); kind != "" {
 				trigger = kind
 			}

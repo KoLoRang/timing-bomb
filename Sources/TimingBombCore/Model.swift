@@ -31,6 +31,9 @@ public enum TriggerType: String, Codable, Sendable, Equatable {
 public struct TriggerConfig: Codable, Equatable, Sendable {
     public var type: TriggerType?
     public var cron: String?
+    /// One-shot schedule: fire once at this local wall-clock time ("yyyy-MM-dd HH:mm",
+    /// interpreted in `timezone`). Mutually exclusive with `cron`.
+    public var runAt: String?
     public var timezone: String?
     /// "skip" | "fireOnce"
     public var misfire: String?
@@ -38,11 +41,12 @@ public struct TriggerConfig: Codable, Equatable, Sendable {
     public var path: String?
 
     public init(
-        type: TriggerType? = nil, cron: String? = nil,
+        type: TriggerType? = nil, cron: String? = nil, runAt: String? = nil,
         timezone: String? = nil, misfire: String? = nil, path: String? = nil
     ) {
         self.type = type
         self.cron = cron
+        self.runAt = runAt
         self.timezone = timezone
         self.misfire = misfire
         self.path = path

@@ -248,11 +248,34 @@ public enum FlowValidator {
                             level: .error, path: "trigger.cron",
                             template: issue.template, params: issue.params))
                 }
+                if trigger.runAt != nil {
+                    issues.append(
+                        .init(
+                            level: .error, path: "trigger.runAt",
+                            message: "set either 'cron' or 'runAt', not both"))
+                }
+            } else if let runAt = trigger.runAt {
+                let tz = OneShotTime.timeZone(named: trigger.timezone)
+                if let date = OneShotTime.parse(runAt, timeZone: tz) {
+                    if trigger.type == .schedule, date < Date() {
+                        issues.append(
+                            .init(
+                                level: .warning, path: "trigger.runAt",
+                                template: "runAt is in the past and will not fire: {runAt}",
+                                params: ["runAt": runAt]))
+                    }
+                } else {
+                    issues.append(
+                        .init(
+                            level: .error, path: "trigger.runAt",
+                            template: "runAt must be 'yyyy-MM-dd HH:mm' (got '{actual}')",
+                            params: ["actual": runAt]))
+                }
             } else if trigger.type == .schedule {
                 issues.append(
                     .init(
                         level: .error, path: "trigger.cron",
-                        message: "schedule trigger requires a cron expression"))
+                        message: "schedule trigger requires a cron expression or a runAt time"))
             }
             if let timezone = trigger.timezone,
                 trigger.timezone != "local", TimeZone(identifier: timezone) == nil

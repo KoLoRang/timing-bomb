@@ -136,3 +136,39 @@ public enum CronMatcher {
         return nil
     }
 }
+
+/// One-shot schedule time (`trigger.runAt`): a local wall-clock time "yyyy-MM-dd HH:mm"
+/// (seconds and a "T" separator are also accepted), interpreted in the trigger's timezone.
+public enum OneShotTime {
+    public static let format = "yyyy-MM-dd HH:mm"
+
+    public static func parse(_ text: String, timeZone: TimeZone) -> Date? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "T", with: " ")
+        for pattern in ["yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss"] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.timeZone = timeZone
+            formatter.dateFormat = pattern
+            formatter.isLenient = false
+            if let date = formatter.date(from: trimmed) { return date }
+        }
+        return nil
+    }
+
+    public static func string(from date: Date, timeZone: TimeZone) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = timeZone
+        formatter.dateFormat = format
+        return formatter.string(from: date)
+    }
+
+    /// Resolves a trigger timezone name ("local"/nil → current).
+    public static func timeZone(named name: String?) -> TimeZone {
+        if let name, name != "local", let tz = TimeZone(identifier: name) { return tz }
+        return .current
+    }
+}

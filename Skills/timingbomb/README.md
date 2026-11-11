@@ -3,7 +3,7 @@
 [TimingBomb](https://github.com/KoLoRang/timing-bomb) is a macOS automation
 orchestrator: flows are built from `code / if / loop / approval / action`
 nodes, node code runs JavaScript in a built-in sandbox, and flows are
-triggered manually, by cron schedule, by webhook, or by watching files.
+triggered manually, by cron schedule or a one-shot date & time, by webhook, or by watching files.
 
 Two pieces are distributed from this repository:
 

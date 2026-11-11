@@ -223,6 +223,14 @@ enum ZhHans {
         "Schedule": "定时",
         "File watch": "文件监听",
         "cron (e.g. 0 9 * * 1-5)": "cron（如 0 9 * * 1-5）",
+        "Cron": "Cron 表达式",
+        "Specific time": "指定时间",
+        "Date": "日期",
+        "Time": "时间",
+        "Today": "今天",
+        "Tomorrow": "明天",
+        "Runs once at the selected date and time": "在所选日期和时间执行一次",
+        "Selected time has passed; it will not run": "所选时间已过，不会执行",
         "Skip missed": "错过跳过",
         "Catch up once": "错过补跑",
         "Watched directory (e.g. ~/Downloads/inbox)": "监听目录（如 ~/Downloads/inbox）",
@@ -482,7 +490,12 @@ enum ZhHans {
 
         "flow id must match {pattern} (got '{actual}')": "flow id 必须匹配 {pattern}（当前为 '{actual}'）",
         "flow name is required": "flow 名称必填",
-        "schedule trigger requires a cron expression": "定时触发需要 cron 表达式",
+        "schedule trigger requires a cron expression or a runAt time":
+            "定时触发需要 cron 表达式或指定执行时间（runAt）",
+        "set either 'cron' or 'runAt', not both": "'cron' 与 'runAt' 只能二选一",
+        "runAt is in the past and will not fire: {runAt}": "指定时间已过，不会再执行：{runAt}",
+        "runAt must be 'yyyy-MM-dd HH:mm' (got '{actual}')":
+            "runAt 格式须为 'yyyy-MM-dd HH:mm'（当前为 '{actual}'）",
         "unknown timezone '{timezone}'": "未知时区 '{timezone}'",
         "misfire must be 'skip' or 'fireOnce' (got '{actual}')": "misfire 必须是 'skip' 或 'fireOnce'（当前为 '{actual}'）",
         "directory does not exist (yet): {path}": "目录（尚）不存在：{path}",

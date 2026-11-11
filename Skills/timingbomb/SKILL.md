@@ -157,7 +157,8 @@ To save an already configured node, use `tb node save --flow <flowId> --node <no
   "description": "Optional notes",
   "trigger": {                        // optional; defaults to manual/webhook
     "type": "schedule",               // manual | schedule | webhook | fileWatch
-    "cron": "0 9 * * 1-5",            // 5-field cron, required for schedule
+    "cron": "0 9 * * 1-5",            // 5-field cron; schedule needs cron OR runAt
+    // "runAt": "2026-12-01 09:30",   // one-shot: run once at this local time (instead of cron)
     "timezone": "Asia/Shanghai",
     "misfire": "skip"                 // skip | fireOnce
   },
@@ -252,7 +253,7 @@ Strings inside params support `{{ templates }}` referencing the context.
 
 - `manual`: by hand (default)
 - `webhook`: external API (`POST /hooks/<flowId>` + Bearer token)
-- `schedule`: `{"cron": "0 9 * * 1-5", "timezone": "Asia/Shanghai", "misfire": "skip|fireOnce"}` (late fire > 5 minutes is skipped by default)
+- `schedule`: `{"cron": "0 9 * * 1-5", "timezone": "Asia/Shanghai", "misfire": "skip|fireOnce"}` (late fire > 5 minutes is skipped by default); one-shot: `{"runAt": "2026-12-01 09:30", "timezone": "Asia/Shanghai"}` runs once at that time (`yyyy-MM-dd HH:mm`, mutually exclusive with `cron`)
 - `fileWatch`: `{"path": "~/Downloads/inbox"}` — recursive directory watching (FSEvents), 2.5s debounce, payload injects `{events: [{path, event}]}`
 
 ## Template syntax
@@ -264,7 +265,7 @@ Strings inside params support `{{ templates }}` referencing the context.
 - All node ids are unique across the flow and match `[A-Za-z0-9][A-Za-z0-9._-]*`
 - JavaScript code nodes define `async function run(ctx)` and contain no import/require; Python and Shell use the stdin/stdout protocol above
 - forEach `over` resolves to an array; while has a `condition`; actions are known types
-- cron is a valid 5-field expression
+- cron is a valid 5-field expression; `runAt` is `yyyy-MM-dd HH:mm` and not combined with `cron` (a past runAt is a warning)
 
 ## Reference files
 

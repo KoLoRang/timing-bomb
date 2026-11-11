@@ -393,10 +393,35 @@ struct FlowDetailView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 320)
                 if isSchedule {
-                    TextField(L10n.t("cron (e.g. 0 9 * * 1-5)"), text: cronBinding)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 140)
-                        .font(.system(.caption, design: .monospaced))
+                    Picker("", selection: scheduleModeBinding) {
+                        Text(L10n.t("Cron")).tag("cron")
+                        Text(L10n.t("Specific time")).tag("once")
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 110)
+                    if isOneShot {
+                        Picker(L10n.t("Date"), selection: runAtDayBinding) {
+                            ForEach(runAtDayOptions, id: \.self) { day in
+                                Text(dayLabel(day)).tag(day)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: 150)
+                        DatePicker(
+                            L10n.t("Time"), selection: runAtTimeBinding,
+                            displayedComponents: .hourAndMinute
+                        )
+                        .datePickerStyle(.field)
+                        .labelsHidden()
+                        .environment(\.timeZone, scheduleTimeZone)
+                        .frame(width: 70)
+                    } else {
+                        TextField(L10n.t("cron (e.g. 0 9 * * 1-5)"), text: cronBinding)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 140)
+                            .font(.system(.caption, design: .monospaced))
+                    }
                     Picker("", selection: misfireBinding) {
                         Text(L10n.t("Skip missed")).tag("skip")
                         Text(L10n.t("Catch up once")).tag("fireOnce")
@@ -416,6 +441,15 @@ struct FlowDetailView: View {
                         .font(.system(.caption, design: .monospaced))
                 }
                 Spacer()
+            }
+            if isSchedule && isOneShot {
+                Text(
+                    runAtIsPast
+                        ? L10n.t("Selected time has passed; it will not run")
+                        : L10n.t("Runs once at the selected date and time")
+                )
+                .font(.caption2)
+                .foregroundStyle(runAtIsPast ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
             }
             if isFileWatch {
                 Text(L10n.t("Fires on file create/modify/delete inside the directory (recursive, 2.5s debounce)"))
@@ -463,6 +497,107 @@ struct FlowDetailView: View {
                 draft.trigger!.cron = newValue.isEmpty ? nil : newValue
                 dirty = true
             }
+        )
+    }
+
+    // MARK: One-shot schedule (trigger.runAt)
+
+    private var isOneShot: Bool { draft.trigger?.cron == nil && draft.trigger?.runAt != nil }
+
+    private var scheduleTimeZone: TimeZone { OneShotTime.timeZone(named: draft.trigger?.timezone) }
+
+    private var scheduleCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = scheduleTimeZone
+        return calendar
+    }
+
+    private var runAtDate: Date? {
+        draft.trigger?.runAt.flatMap { OneShotTime.parse($0, timeZone: scheduleTimeZone) }
+    }
+
+    private var runAtIsPast: Bool { runAtDate.map { $0 < Date() } ?? false }
+
+    /// Default for a freshly chosen one-shot: tomorrow 09:00.
+    private func defaultRunAt() -> String {
+        let calendar = scheduleCalendar
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
+        let nine = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+        return OneShotTime.string(from: nine, timeZone: scheduleTimeZone)
+    }
+
+    private var scheduleModeBinding: Binding<String> {
+        Binding(
+            get: { isOneShot ? "once" : "cron" },
+            set: { newValue in
+                if draft.trigger == nil { draft.trigger = TriggerConfig(type: .schedule) }
+                if newValue == "once" {
+                    draft.trigger!.cron = nil
+                    if draft.trigger!.runAt == nil { draft.trigger!.runAt = defaultRunAt() }
+                } else {
+                    draft.trigger!.runAt = nil
+                }
+                dirty = true
+            }
+        )
+    }
+
+    /// Start-of-day dates offered in the date dropdown: today + the next 365 days,
+    /// plus the currently saved day if it falls outside that range.
+    private var runAtDayOptions: [Date] {
+        let calendar = scheduleCalendar
+        let today = calendar.startOfDay(for: Date())
+        var days = (0...365).compactMap { calendar.date(byAdding: .day, value: $0, to: today) }
+        if let current = runAtDate.map({ calendar.startOfDay(for: $0) }), !days.contains(current) {
+            days.insert(current, at: current < today ? 0 : days.count)
+        }
+        return days
+    }
+
+    private func dayLabel(_ day: Date) -> String {
+        let calendar = scheduleCalendar
+        let formatter = DateFormatter()
+        formatter.timeZone = scheduleTimeZone
+        formatter.locale = L10n.isChinese ? Locale(identifier: "zh_CN") : Locale.current
+        formatter.setLocalizedDateFormatFromTemplate("yyyyMMMdEEE")
+        let text = formatter.string(from: day)
+        let today = calendar.startOfDay(for: Date())
+        switch calendar.dateComponents([.day], from: today, to: day).day {
+        case 0: return "\(text) · \(L10n.t("Today"))"
+        case 1: return "\(text) · \(L10n.t("Tomorrow"))"
+        default: return text
+        }
+    }
+
+    private func updateRunAt(day: Date? = nil, time: Date? = nil) {
+        let calendar = scheduleCalendar
+        let current = runAtDate ?? OneShotTime.parse(defaultRunAt(), timeZone: scheduleTimeZone)!
+        let dayPart = calendar.dateComponents([.year, .month, .day], from: day ?? current)
+        let timePart = calendar.dateComponents([.hour, .minute], from: time ?? current)
+        var merged = DateComponents()
+        merged.year = dayPart.year
+        merged.month = dayPart.month
+        merged.day = dayPart.day
+        merged.hour = timePart.hour
+        merged.minute = timePart.minute
+        guard let date = calendar.date(from: merged) else { return }
+        if draft.trigger == nil { draft.trigger = TriggerConfig(type: .schedule) }
+        draft.trigger!.cron = nil
+        draft.trigger!.runAt = OneShotTime.string(from: date, timeZone: scheduleTimeZone)
+        dirty = true
+    }
+
+    private var runAtDayBinding: Binding<Date> {
+        Binding(
+            get: { scheduleCalendar.startOfDay(for: runAtDate ?? Date()) },
+            set: { updateRunAt(day: $0) }
+        )
+    }
+
+    private var runAtTimeBinding: Binding<Date> {
+        Binding(
+            get: { runAtDate ?? Date() },
+            set: { updateRunAt(time: $0) }
         )
     }
 

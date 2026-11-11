@@ -36,6 +36,12 @@ public actor Scheduler {
         let nowDate = now()
         let metas = (try? await store.listFlows()) ?? []
         for meta in metas {
+            if let trigger = meta.flow.trigger, trigger.type == .schedule,
+                trigger.cron == nil, let runAt = trigger.runAt
+            {
+                await tickOneShot(meta: meta, trigger: trigger, runAt: runAt, now: nowDate)
+                continue
+            }
             guard let trigger = meta.flow.trigger, trigger.type == .schedule,
                 let cron = trigger.cron,
                 let slot = Self.latestSlot(onOrBefore: nowDate, expression: cron, timeZone: timeZone(trigger))
@@ -61,6 +67,46 @@ public actor Scheduler {
                         "fireAt": .double(slot.timeIntervalSince1970),
                     ])))
         }
+    }
+
+    /// One-shot schedule (`trigger.runAt`): fires a single run once the time is reached.
+    /// Run history is checked so a daemon restart never fires the same time twice.
+    private func tickOneShot(
+        meta: Store.FlowMeta, trigger: TriggerConfig, runAt: String, now nowDate: Date
+    ) async {
+        let flowId = meta.flow.id
+        guard let fireAt = OneShotTime.parse(runAt, timeZone: timeZone(trigger)),
+            fireAt <= nowDate
+        else { return }
+        let key = "\(flowId)|once"
+        guard (lastFired[key] ?? .distantPast) < fireAt else { return }
+        lastFired[key] = fireAt
+        guard !meta.paused else { return }
+
+        let late = nowDate.timeIntervalSince(fireAt)
+        guard late <= 300 || trigger.misfire == "fireOnce" else { return }
+
+        let fireAtSeconds = fireAt.timeIntervalSince1970
+        let previous = (try? await store.listRuns(flowId: flowId, limit: 50)) ?? []
+        let alreadyFired = previous.contains { record in
+            guard record.trigger.type == "schedule",
+                case .object(let payload)? = record.trigger.payload,
+                payload["runAt"] != nil
+            else { return false }
+            if case .double(let value)? = payload["fireAt"] { return value == fireAtSeconds }
+            if case .int(let value)? = payload["fireAt"] { return Double(value) == fireAtSeconds }
+            return false
+        }
+        guard !alreadyFired else { return }
+
+        _ = try? await runs.start(
+            flow: meta.flow,
+            trigger: TriggerInfo(
+                type: "schedule",
+                payload: .object([
+                    "runAt": .string(runAt),
+                    "fireAt": .double(fireAtSeconds),
+                ])))
     }
 
     private func timeZone(_ trigger: TriggerConfig) -> TimeZone {
