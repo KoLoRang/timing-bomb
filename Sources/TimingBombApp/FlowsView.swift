@@ -391,56 +391,39 @@ struct FlowDetailView: View {
                     Text(L10n.t("File watch")).tag("fileWatch")
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 320)
-                if isSchedule {
-                    Picker("", selection: scheduleModeBinding) {
-                        Text(L10n.t("Cron")).tag("cron")
-                        Text(L10n.t("Specific time")).tag("once")
+                .frame(maxWidth: 320)
+                Spacer(minLength: 0)
+            }
+            if isSchedule {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        scheduleModePicker
+                        scheduleFields
                     }
-                    .pickerStyle(.menu)
-                    .frame(width: 110)
-                    if isOneShot {
-                        Picker(L10n.t("Date"), selection: runAtDayBinding) {
-                            ForEach(runAtDayOptions, id: \.self) { day in
-                                Text(dayLabel(day)).tag(day)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .frame(width: 150)
-                        DatePicker(
-                            L10n.t("Time"), selection: runAtTimeBinding,
-                            displayedComponents: .hourAndMinute
-                        )
-                        .datePickerStyle(.field)
-                        .labelsHidden()
-                        .environment(\.timeZone, scheduleTimeZone)
-                        .frame(width: 70)
-                    } else {
-                        TextField(L10n.t("cron (e.g. 0 9 * * 1-5)"), text: cronBinding)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 140)
-                            .font(.system(.caption, design: .monospaced))
+                    .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 8) {
+                        scheduleModePicker
+                        scheduleFields
                     }
-                    Picker("", selection: misfireBinding) {
-                        Text(L10n.t("Skip missed")).tag("skip")
-                        Text(L10n.t("Catch up once")).tag("fireOnce")
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 100)
-                } else if isWebhook {
-                    Text("POST /hooks/\(draft.id)")
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else if isFileWatch {
-                    TextField(L10n.t("Watched directory (e.g. ~/Downloads/inbox)"), text: watchPathBinding)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 260)
-                        .font(.system(.caption, design: .monospaced))
                 }
-                Spacer()
+                Picker("", selection: misfireBinding) {
+                    Text(L10n.t("Skip missed")).tag("skip")
+                    Text(L10n.t("Catch up once")).tag("fireOnce")
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+            } else if isWebhook {
+                Text("POST /hooks/\(draft.id)")
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else if isFileWatch {
+                TextField(L10n.t("Watched directory (e.g. ~/Downloads/inbox)"), text: watchPathBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 360)
+                    .font(.system(.caption, design: .monospaced))
             }
             if isSchedule && isOneShot {
                 Text(
@@ -468,6 +451,45 @@ struct FlowDetailView: View {
                     .frame(maxWidth: 360)
                 Spacer()
             }
+        }
+    }
+
+    private var scheduleModePicker: some View {
+        Picker("", selection: scheduleModeBinding) {
+            Text(L10n.t("Cron")).tag("cron")
+            Text(L10n.t("Specific time")).tag("once")
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var scheduleFields: some View {
+        if isOneShot {
+            HStack(spacing: 12) {
+                Picker(L10n.t("Date"), selection: runAtDayBinding) {
+                    ForEach(runAtDayOptions, id: \.self) { day in
+                        Text(dayLabel(day)).tag(day)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+                DatePicker(
+                    L10n.t("Time"), selection: runAtTimeBinding,
+                    displayedComponents: .hourAndMinute
+                )
+                .datePickerStyle(.field)
+                .labelsHidden()
+                .environment(\.timeZone, scheduleTimeZone)
+                .fixedSize()
+            }
+        } else {
+            TextField(L10n.t("cron (e.g. 0 9 * * 1-5)"), text: cronBinding)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 140, idealWidth: 260, maxWidth: 320)
+                .font(.system(.caption, design: .monospaced))
         }
     }
 
